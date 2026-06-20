@@ -1,0 +1,29 @@
+COPY-PASTE SETUP FOR DISCORD + FIREBASE
+
+--- Discord OAuth2 Redirect URIs (paste into Discord Developer Portal → OAuth2 → Redirects) ---
+https://testweb67-9c814.firebaseapp.com/__/auth/handler
+https://testweb67-9c814.web.app/__/auth/handler
+https://web-ie-ie.vercel.app/__/auth/handler
+
+(If you test from a Vercel preview URL, add that preview host with /__/auth/handler too.)
+
+--- Discord OAuth2 Scopes (OAuth2 → URL Generator) ---
+identify
+email
+
+--- Firebase Authorized domains (Firebase Console → Authentication → Settings → Authorized domains) ---
+testweb67-9c814.firebaseapp.com
+testweb67-9c814.web.app
+web-ie-ie.vercel.app
+
+--- Quick Steps ---
+1) In Discord Developer Portal (https://discord.com/developers/applications) -> select your app -> OAuth2 -> Redirects: paste each Redirect URI line above and click Add, then Save.
+2) In Discord -> OAuth2 -> URL Generator: tick scopes `identify` and `email`.
+3) In Firebase Console -> Authentication -> Settings -> Authorized domains: click Add domain and paste each hostname from the Authorized domains section above.
+4) Do NOT paste your Client Secret anywhere public; if it was exposed, Reset Secret in Discord and update wherever you store it (Firebase or server env vars).
+
+--- Testing ---
+- Open https://web-ie-ie.vercel.app -> open DevTools (Console + Network) -> click Discord -> complete the OAuth flow -> ensure you get redirected back to the app and login completes.
+- If it fails, copy any Console error text and the Network request to /__/auth/handler and send them here.
+
+If you want, I can also walk you step-by-step while you paste these values (tell me when you're on each page).

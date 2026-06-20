@@ -1,0 +1,11 @@
+{
+  "firebase": {
+    "command": "node",
+    "args": ["./mcp-firebase-server.js"],
+    "env": {
+      "FIREBASE_PROJECT_ID": "testweb67-9c814",
+      "FIREBASE_DATABASE_URL": "https://testweb67-9c814-default-rtdb.asia-southeast1.firebasedatabase.app",
+      "GOOGLE_APPLICATION_CREDENTIALS": ".firebase-service-account.json"
+    }
+  }
+}

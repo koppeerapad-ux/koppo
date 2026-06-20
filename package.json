@@ -1,0 +1,60 @@
+{
+  "name": "firebase-auth-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.2.0",
+    "@google-cloud/firestore": "^7.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "axios": "^1.6.2",
+    "discord-oauth2": "^2.12.1",
+    "jwks-rsa": "3.2.2",
+    "firebase": "^10.7.0",
+    "firebase-admin": "13.0.0",
+    "google-auth-library": "^8.8.0",
+    "jsonwebtoken": "^9.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "concurrently": "^9.1.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "react-scripts": "5.0.1",
+    "tsx": "^4.22.4",
+    "web-vitals": "^2.1.4"
+  },
+  "proxy": "http://localhost:3001",
+  "scripts": {
+    "start": "concurrently \"npm run start:api\" \"react-scripts start\"",
+    "start:api": "node server/api.js",
+    "start:socket": "node server/melodyMess/gameServer.js",
+    "start:app": "react-scripts start",
+    "start:dev": "concurrently \"npm run start:api\" \"npm run start:socket\" \"react-scripts start\"",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

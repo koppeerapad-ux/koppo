@@ -1,0 +1,243 @@
+.song-chain-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+  padding: 20px;
+  font-family: 'Arial', sans-serif;
+  color: #333;
+}
+
+.song-chain-container h1,
+.song-chain-container h2 {
+  text-align: center;
+  margin: 20px 0;
+  font-size: 32px;
+  color: #333;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+.song-chain-container h2 {
+  font-size: 24px;
+}
+
+.song-chain-container p {
+  text-align: center;
+  margin: 10px 0;
+  color: #555;
+}
+
+.song-input {
+  display: block;
+  width: 90%;
+  max-width: 400px;
+  margin: 20px auto;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 16px;
+  background: white;
+}
+
+.create-btn {
+  background: #ff6b9d;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: block;
+  margin: 20px auto;
+  transition: all 0.3s;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.create-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.room-code {
+  background: #ff6b9d;
+  color: white;
+  padding: 5px 15px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 20px;
+}
+
+.start-btn,
+.confirm-btn,
+.record-btn,
+.stop-btn {
+  background: #ff6b9d;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: block;
+  margin: 20px auto;
+  transition: all 0.3s;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.start-btn:hover,
+.confirm-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.record-btn {
+  background: #4caf50;
+}
+
+.stop-btn {
+  background: #f44336;
+}
+
+.back-btn {
+  background: white;
+  border: 2px solid #ddd;
+  color: #333;
+  padding: 10px 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-bottom: 20px;
+  transition: all 0.3s;
+}
+
+.back-btn:hover {
+  background: #ff6b9d;
+  color: white;
+  border-color: #ff6b9d;
+}
+
+.timer {
+  font-size: 48px;
+  font-weight: bold;
+  text-align: center;
+  margin: 30px 0;
+  background: white;
+  padding: 20px;
+  border-radius: 15px;
+  border: 3px solid #ff6b9d;
+  color: #ff6b9d;
+}
+
+.players-list {
+  background: white;
+  border-radius: 15px;
+  padding: 15px;
+  margin: 20px auto;
+  max-width: 400px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.player-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: linear-gradient(135deg, #f5f5f5 0%, #efefef 100%);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.player-item img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 10px;
+}
+
+.player-item span {
+  flex: 1;
+  font-weight: bold;
+}
+
+.queue-info {
+  background: white;
+  border-radius: 15px;
+  padding: 15px;
+  margin: 20px auto;
+  max-width: 400px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.queue-info p {
+  margin: 0 0 10px 0;
+  font-weight: bold;
+  color: #333;
+}
+
+.queue-item {
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  color: #666;
+  transition: all 0.3s;
+}
+
+.queue-item.active {
+  background: #ff6b9d;
+  color: white;
+  font-weight: bold;
+  border-left: 4px solid #ffa502;
+}
+
+.queue-item.done {
+  background: #4caf50;
+  color: white;
+  opacity: 0.7;
+}
+
+.final-result {
+  background: white;
+  border-radius: 15px;
+  padding: 20px;
+  max-width: 400px;
+  margin: 20px auto;
+  text-align: center;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.final-result h3 {
+  margin: 0 0 15px 0;
+  font-size: 20px;
+  color: #ff6b9d;
+}
+
+.final-result audio {
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 300px;
+  margin: 30px auto;
+}
+
+.action-buttons button {
+  background: white;
+  color: #ff6b9d;
+  border: 2px solid #ff6b9d;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.action-buttons button:hover {
+  background: #ff6b9d;
+  color: white;
+  transform: translateY(-2px);
+}
