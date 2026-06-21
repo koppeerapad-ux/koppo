@@ -170,6 +170,160 @@ const { signInWithDiscord } = useAuth();
 const user = await signInWithDiscord();
 ```
 
+## 🎮 Melody Mess - Party Game Modes
+
+### New Game Modes (v2.0)
+
+Melody Mess now supports exciting real-time party game modes powered by Socket.io:
+
+#### 1. 🐶 Barking Battle (โฮ่งฮับแชมเปียนชิป)
+- **Concept**: Real-time "barking" competition where players rapid-fire "bark" to get the highest score in 30 seconds
+- **How to Play**: Players tap a button repeatedly to "bark" - whoever barks the most/loudest wins
+- **Socket Events**: `START_BARKING_BATTLE`, `SUBMIT_BARK`, `BARK_SCORE_UPDATE`, `BARKING_BATTLE_RESULTS`
+
+#### 2. 🎤 Broken Karaoke - Chain Melody (คาราโอเกะสายพาน)
+- **Concept**: Telephone game with songs - first player sees lyrics and sings, each next player only hears the previous player's audio and tries to recreate it
+- **How to Play**: Pass the song down the chain as it gets progressively warped, then play the full chain comparison
+- **Socket Events**: `START_CHAIN_KARAOKE`, `SUBMIT_CHAIN_AUDIO`, `CHAIN_KARAOKE_NEXT_TURN`, `CHAIN_KARAOKE_COMPLETE`
+
+#### 3. 📞 Broken Karaoke - Classic (คาราโอเกะโทรศัพท์เสีย)
+- **Concept**: Whisper chain with audio - first player hears original song, each next player only hears previous player's attempt
+- **How to Play**: Track how the sound degrades through the chain of players
+- **Socket Events**: `START_CLASSIC_KARAOKE`, `SUBMIT_WHISPER_AUDIO`, `CLASSIC_KARAOKE_NEXT_TURN`, `CLASSIC_KARAOKE_COMPLETE`
+
+#### 4. 🎨 Draw The Melody (ทายใจเสียงฮัม)
+- **Concept**: One player hums a song while others draw what they imagine from the humming
+- **How to Play**: Humming player gets the song name and hums for 15 seconds, other players draw for 30 seconds, then reveal and vote on best drawing
+- **Socket Events**: `START_DRAW_MELODY`, `SUBMIT_HUMMING`, `SUBMIT_DRAWING`, `VOTE_DRAWING`
+
+### Documentation
+
+- **Game Modes Roadmap**: See [GAME_MODES_ROADMAP.md](GAME_MODES_ROADMAP.md) for detailed mechanics, socket flows, and implementation guides
+- **Architecture**: Backend socket handlers in `server/melodyMess/gameServer.js`
+- **Room Management**: Game state managed by `server/melodyMess/roomManager.js`
+
+## 🚀 Deployment
+
+### Quick Deploy to Production
+
+#### Option 1: One-Command Deployment (Recommended)
+
+**Windows:**
+```bash
+deploy.bat
+```
+
+**macOS/Linux:**
+```bash
+bash deploy.sh
+```
+
+#### Option 2: Manual Steps
+
+1. **Setup Environment**
+   ```bash
+   # Copy and edit the environment template
+   cp .env.production.local.example .env.production.local
+   # Edit with your Firebase credentials
+   ```
+
+2. **Build Frontend**
+   ```bash
+   npm install
+   npm run build
+   ```
+
+3. **Deploy to Firebase Hosting**
+   ```bash
+   firebase deploy --only hosting
+   ```
+
+4. **Deploy Socket Server to Render**
+   ```bash
+   git add -A
+   git commit -m "Deploy new features"
+   git push origin main
+   # Render auto-deploys from main branch
+   ```
+
+### Deployment Targets
+
+- **Frontend**: Firebase Hosting ([testweb67-9c814.web.app](https://testweb67-9c814.web.app))
+- **Socket Server**: Render ([koppo.onrender.com](https://koppo.onrender.com))
+- **Database**: Firebase Firestore
+- **Auth**: Firebase Authentication
+
+### Full Deployment Guide
+
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for:
+- Detailed deployment instructions
+- Environment variable configuration
+- Monitoring and troubleshooting
+- Rollback procedures
+- Production checklist
+
+## 📊 Tech Stack
+
+- **Frontend**: React 18, Socket.io Client, Firebase SDK
+- **Backend**: Node.js, Express, Socket.io, Firebase Admin
+- **Hosting**: Firebase Hosting (Frontend), Render (Socket Server)
+- **Database**: Firebase Firestore
+- **Authentication**: Firebase Auth (Email, Google, Discord OAuth)
+- **Real-time**: Socket.io (WebSocket)
+
+## 🧪 Development
+
+### Local Development
+
+```bash
+# Start all services (API, Socket, Frontend)
+npm run start:dev
+
+# Or start individually:
+npm run start:socket          # Socket server on port 3003
+npm run start:api             # API server on port 3001
+npm run start:app             # Frontend on port 3000
+```
+
+### Testing Game Modes
+
+```bash
+# Test socket connection in browser console
+const socket = io('http://localhost:3003');
+socket.on('connect', () => console.log('Connected'));
+
+# Create room and test game modes
+socket.emit('CREATE_ROOM', { playerId: 'test-user' });
+socket.on('ROOM_CREATED', (data) => console.log('Room:', data.roomCode));
+```
+
+## 🐛 Troubleshooting
+
+### Socket Connection Issues
+- Check `REACT_APP_SOCKET_URL` environment variable
+- Ensure Socket Server is running on Render or locally
+- Check CORS configuration in `gameServer.js`
+
+### Firebase Authentication Issues
+- Verify Firebase credentials in `.env.production.local`
+- Check OAuth provider settings in Firebase Console
+- Ensure redirect URIs are correctly configured
+
+### Build Issues
+- Clear cache: `rm -rf node_modules && npm install`
+- Clear Firebase cache: `firebase cache:clear`
+- Check Node version: Should be 16+
+
+## 📝 License
+
+MIT
+
+## 👥 Contributors
+
+- Project Owner: [Your Name]
+- Last Updated: 2026-06-21
+```
+
 ### ออกจากระบบ (Logout)
 
 ```javascript

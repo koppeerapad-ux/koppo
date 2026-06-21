@@ -492,9 +492,6 @@ const path = require("path");
     process.exit(1);
   });
 })();
-
-// Define MCP tools
-const tools = [
   {
     name: "get_document",
     description: "Get a document from Firestore",
