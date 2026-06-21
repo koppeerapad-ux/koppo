@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import AuthCallback from './pages/AuthCallback';
 import EmailVerification from './pages/EmailVerification';
 import MelodyMessLobby from './pages/MelodyMess/MelodyMessLobby';
+import MelodyMessGame from './pages/MelodyMess/MelodyMessGame';
 import './App.css';
 
 function App() {
@@ -23,6 +24,14 @@ function App() {
             element={
               <PrivateRoute>
                 <MelodyMessLobby />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/melody-mess/game/:roomCode"
+            element={
+              <PrivateRoute>
+                <MelodyMessGame />
               </PrivateRoute>
             }
           />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../config/AuthContext';
 import { AudioRecorder, playAudio, stopAudio } from '../../utils/audioProcessing/audioRecorder';
 import { getSocketUrl } from '../../utils/socketUrl';
@@ -66,6 +67,8 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     const fallbackPlayer = playersArray[0];
     return hostFromFlag?.playerId || hostFromFlag?.id || fallbackPlayer?.playerId || fallbackPlayer?.id || null;
   };
+
+  const navigate = useNavigate();
 
   // Initialize Socket.io
   useEffect(() => {
@@ -183,6 +186,15 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       }
       setDebugMessage(`GAME_STARTED received: player=${playerId} host=${inferredHostId} state=${playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP'}`);
       console.log('🎬 GAME_STARTED received, host:', inferredHostId, 'player:', playerId, 'state:', playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP');
+      // Navigate to dedicated game route so UI can be isolated
+      try {
+        if (roomCode) {
+          const target = `/melody-mess/game/${roomCode}`;
+          if (window.location.pathname !== target) navigate(target);
+        }
+      } catch (e) {
+        console.warn('navigate failed', e);
+      }
     });
 
     newSocket.on('CHALLENGE_SET', ({ challenge: chal, duration }) => {
