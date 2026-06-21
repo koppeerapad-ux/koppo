@@ -685,6 +685,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'SETUP') {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         <h2>⚙️ ตั้งค่าท่วงทำนอง</h2>
         <input
           type="text"
@@ -702,6 +714,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'WAITING_SETUP') {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         <h2>⌛ รอเจ้าของห้องตั้งค่าท้าทาย</h2>
         <p>เจ้าของห้องกำลังเตรียมคำสั่งร้อง</p>
         <div className="players-list">
@@ -721,6 +745,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'RECORDING') {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         <h2>🎵 {challenge}</h2>
         <p>ร้องลอกท่วงทำนองภายใน 20 วินาที!</p>
 
@@ -749,6 +785,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'PLAYBACK') {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         <h2>🎬 ฟังเสียงของทั้งหมด</h2>
 
         <div className="playback-list">
@@ -774,6 +822,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'VOTING' || (gameState === 'PLAYBACK' && Object.keys(players).length > 0)) {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         <h2>🏆 โหวตสำหรับคนที่ปังสุด</h2>
 
         <div className="voting-grid">
