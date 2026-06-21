@@ -41,6 +41,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const [socketId, setSocketId] = useState(null);
   const [joinRequested, setJoinRequested] = useState(false);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
+  const [selectedGameMode, setSelectedGameMode] = useState('battle_singer'); // New: game mode selection
   const isConnected = socket?.connected;
   const playerCount = Object.keys(players).length;
   const isHost = playerId && hostId && playerId === hostId;
@@ -196,6 +197,90 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setGameState('RECORDING');
     });
 
+    // Barking Battle Events
+    newSocket.on('BARKING_BATTLE_STARTED', ({ roomCode: payloadRoomCode, duration, players: playerList }) => {
+      console.log('🐕 BARKING_BATTLE_STARTED received', { roomCode: payloadRoomCode, duration });
+      const normalizedPlayers = normalizePlayers(playerList);
+      setPlayers(normalizedPlayers);
+      setGameState('RECORDING'); // Players now enter recording mode for barking
+      setDebugMessage(`BARKING_BATTLE_STARTED: duration=${duration} players=${Object.keys(normalizedPlayers).length}`);
+    });
+
+    newSocket.on('BARK_SCORE_UPDATE', ({ scores }) => {
+      console.log('🐕 BARK_SCORE_UPDATE received', scores);
+      setDebugMessage(`BARK_SCORE_UPDATE: ${JSON.stringify(scores)}`);
+      // Update UI with live scores
+      setPlayers((prev) => {
+        const updated = { ...prev };
+        Object.entries(scores || {}).forEach(([playerId, score]) => {
+          if (updated[playerId]) {
+            updated[playerId].barkScore = score;
+          }
+        });
+        return updated;
+      });
+    });
+
+    newSocket.on('BARKING_BATTLE_RESULTS', ({ results }) => {
+      console.log('🐕 BARKING_BATTLE_RESULTS received', results);
+      setGameState('RESULTS');
+      setResults(results);
+      setDebugMessage(`BARKING_BATTLE_RESULTS: ${results.length} results`);
+    });
+
+    // Chain Karaoke Events
+    newSocket.on('CHAIN_KARAOKE_STARTED', ({ roomCode: payloadRoomCode, challenge: chal, currentPlayer, timePerTurn }) => {
+      console.log('🎤 CHAIN_KARAOKE_STARTED received', { currentPlayer, timePerTurn });
+      setChallenge(chal);
+      setGameState('RECORDING');
+      setDebugMessage(`CHAIN_KARAOKE_STARTED: current=${currentPlayer} time=${timePerTurn}s`);
+    });
+
+    newSocket.on('CHAIN_KARAOKE_NEXT_TURN', ({ nextPlayer, previousAudio, currentTurnIndex, totalPlayers }) => {
+      console.log('🎤 CHAIN_KARAOKE_NEXT_TURN received', { nextPlayer, currentTurnIndex, totalPlayers });
+      setDebugMessage(`CHAIN_KARAOKE_NEXT_TURN: player ${currentTurnIndex}/${totalPlayers}`);
+    });
+
+    newSocket.on('CHAIN_KARAOKE_COMPLETE', ({ audioQueue, originalChallenge }) => {
+      console.log('🎤 CHAIN_KARAOKE_COMPLETE received', { queueLength: audioQueue?.length });
+      setGameState('PLAYBACK');
+      setDebugMessage(`CHAIN_KARAOKE_COMPLETE: ${audioQueue?.length} audios to play`);
+    });
+
+    // Classic Karaoke Events
+    newSocket.on('CLASSIC_KARAOKE_STARTED', ({ roomCode: payloadRoomCode, challenge: chal, currentPlayer }) => {
+      console.log('📞 CLASSIC_KARAOKE_STARTED received');
+      setChallenge(chal);
+      setGameState('RECORDING');
+      setDebugMessage(`CLASSIC_KARAOKE_STARTED: first player=${currentPlayer}`);
+    });
+
+    newSocket.on('CLASSIC_KARAOKE_COMPLETE', ({ audioQueue, originalChallenge }) => {
+      console.log('📞 CLASSIC_KARAOKE_COMPLETE received');
+      setGameState('PLAYBACK');
+      setDebugMessage(`CLASSIC_KARAOKE_COMPLETE: ${audioQueue?.length} audios`);
+    });
+
+    // Draw The Melody Events
+    newSocket.on('DRAW_MELODY_STARTED', ({ roomCode: payloadRoomCode, challenge: chal, hummingPlayer }) => {
+      console.log('🎨 DRAW_MELODY_STARTED received', { hummingPlayer });
+      setChallenge(chal);
+      setGameState('RECORDING');
+      setDebugMessage(`DRAW_MELODY_STARTED: hummer=${hummingPlayer}`);
+    });
+
+    newSocket.on('HUMMING_COMPLETE', ({ hummingPlayer, readyForDrawing }) => {
+      console.log('🎨 HUMMING_COMPLETE received');
+      setGameState('RECORDING'); // Switch to drawing mode
+      setDebugMessage(`HUMMING_COMPLETE: ready to draw`);
+    });
+
+    newSocket.on('ALL_DRAWINGS_COMPLETE', ({ drawings, challenge: chal, hummingAudio }) => {
+      console.log('🎨 ALL_DRAWINGS_COMPLETE received', { drawingCount: Object.keys(drawings).length });
+      setGameState('RESULTS');
+      setDebugMessage(`ALL_DRAWINGS_COMPLETE: ${Object.keys(drawings).length} drawings`);
+    });
+
     newSocket.on('PLAYBACK_START', ({ players: playerList }) => {
       setGameState('PLAYBACK');
       setPlayers(playerList);
@@ -288,7 +373,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
 
   // Start game
   const handleStartGame = () => {
-    setDebugMessage(`handleStartGame clicked: roomCode=${roomCode} playerId=${playerId} hostId=${hostId} isHost=${isHost} socketId=${socket?.id}`);
+    setDebugMessage(`handleStartGame clicked: mode=${selectedGameMode} roomCode=${roomCode} playerId=${playerId} hostId=${hostId} isHost=${isHost} socketId=${socket?.id}`);
     if (!socket?.connected) {
       setSocketError('ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ โปรดลองใหม่อีกครั้ง');
       return;
@@ -301,15 +386,62 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setSocketError('เฉพาะเจ้าของห้องเท่านั้นที่สามารถเริ่มเกมได้');
       return;
     }
-    console.log('handleStartGame', { roomCode, playerId, hostId, isHost, socketId: socket.id });
-    setDebugMessage(`emit START_BATTLE_SINGER: roomCode=${roomCode} playerId=${playerId}`);
-    socket.emit('START_BATTLE_SINGER', { roomCode, playerId }, (response) => {
-      console.log('START_BATTLE_SINGER ack', response);
-      setDebugMessage(`START_BATTLE_SINGER ack: ${JSON.stringify(response)}`);
-      if (response?.ok !== true) {
-        setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
-      }
-    });
+    
+    console.log('handleStartGame', { roomCode, playerId, hostId, isHost, socketId: socket.id, gameMode: selectedGameMode });
+    
+    // Send appropriate event based on selected game mode
+    switch(selectedGameMode) {
+      case 'barking_battle':
+        console.log('Starting BARKING_BATTLE');
+        socket.emit('START_BARKING_BATTLE', { roomCode, playerId }, (response) => {
+          console.log('START_BARKING_BATTLE ack', response);
+          setDebugMessage(`START_BARKING_BATTLE ack: ${JSON.stringify(response)}`);
+          if (response?.ok !== true) {
+            setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+          }
+        });
+        break;
+      case 'chain_karaoke':
+        console.log('Starting CHAIN_KARAOKE');
+        socket.emit('START_CHAIN_KARAOKE', { roomCode, challenge: 'สวนกล่อมกันหักระเบิด', playerId }, (response) => {
+          console.log('START_CHAIN_KARAOKE ack', response);
+          setDebugMessage(`START_CHAIN_KARAOKE ack: ${JSON.stringify(response)}`);
+          if (response?.ok !== true) {
+            setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+          }
+        });
+        break;
+      case 'classic_karaoke':
+        console.log('Starting CLASSIC_KARAOKE');
+        socket.emit('START_CLASSIC_KARAOKE', { roomCode, challenge: 'Attack on Titan Opening', playerId }, (response) => {
+          console.log('START_CLASSIC_KARAOKE ack', response);
+          setDebugMessage(`START_CLASSIC_KARAOKE ack: ${JSON.stringify(response)}`);
+          if (response?.ok !== true) {
+            setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+          }
+        });
+        break;
+      case 'draw_melody':
+        console.log('Starting DRAW_MELODY');
+        socket.emit('START_DRAW_MELODY', { roomCode, challenge: 'เพลง Naruto Opening', playerId }, (response) => {
+          console.log('START_DRAW_MELODY ack', response);
+          setDebugMessage(`START_DRAW_MELODY ack: ${JSON.stringify(response)}`);
+          if (response?.ok !== true) {
+            setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+          }
+        });
+        break;
+      case 'battle_singer':
+      default:
+        console.log('Starting BATTLE_SINGER');
+        socket.emit('START_BATTLE_SINGER', { roomCode, playerId }, (response) => {
+          console.log('START_BATTLE_SINGER ack', response);
+          setDebugMessage(`START_BATTLE_SINGER ack: ${JSON.stringify(response)}`);
+          if (response?.ok !== true) {
+            setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+          }
+        });
+    }
   };
 
   // Set challenge (host only)
@@ -463,11 +595,69 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
           isHost ? (
             <>
               <div className="host-badge">คุณคือเจ้าของห้อง</div>
+              
+              {/* Game Mode Selector */}
+              <div className="game-mode-selector" style={{ margin: '20px 0', padding: '15px', border: '2px solid #FF6B6B', borderRadius: '8px', backgroundColor: '#f8f9fa' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>เลือกโหมดเกม:</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="gameMode"
+                      value="barking_battle"
+                      checked={selectedGameMode === 'barking_battle'}
+                      onChange={(e) => setSelectedGameMode(e.target.value)}
+                    />
+                    <span>🐶 โฮ่งฮับแชมเปียนชิป (Barking Battle)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="gameMode"
+                      value="chain_karaoke"
+                      checked={selectedGameMode === 'chain_karaoke'}
+                      onChange={(e) => setSelectedGameMode(e.target.value)}
+                    />
+                    <span>🎤 คาราโอเกะสายพาน (Chain Melody)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="gameMode"
+                      value="classic_karaoke"
+                      checked={selectedGameMode === 'classic_karaoke'}
+                      onChange={(e) => setSelectedGameMode(e.target.value)}
+                    />
+                    <span>📞 คาราโอเกะโทรศัพท์เสีย (Classic Karaoke)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="gameMode"
+                      value="draw_melody"
+                      checked={selectedGameMode === 'draw_melody'}
+                      onChange={(e) => setSelectedGameMode(e.target.value)}
+                    />
+                    <span>🎨 ทายใจเสียงฮัม (Draw The Melody)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="gameMode"
+                      value="battle_singer"
+                      checked={selectedGameMode === 'battle_singer'}
+                      onChange={(e) => setSelectedGameMode(e.target.value)}
+                    />
+                    <span>🎸 Battle Singer (เกมเก่า)</span>
+                  </label>
+                </div>
+              </div>
+
               <button className="start-btn" type="button" onClick={() => {
-                console.log('start button clicked', { roomCode, playerId, hostId, isHost, gameState, players });
+                console.log('start button clicked', { roomCode, playerId, hostId, isHost, gameState, players, selectedGameMode });
                 handleStartGame();
               }}>
-                เริ่มเกม
+                เริ่มเกม ({selectedGameMode})
               </button>
             </>
           ) : (

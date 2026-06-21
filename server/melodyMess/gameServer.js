@@ -179,24 +179,39 @@ io.on('connection', (socket) => {
     const room = roomManager.getRoom(resolvedRoomCode);
     const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     
+    console.log(`🐕 START_BARKING_BATTLE received`, {
+      socketId: socket.id,
+      providedRoomCode: roomCode,
+      resolvedRoomCode,
+      providedPlayerId: playerId,
+      resolvedPid: pid,
+      roomHostId: room?.hostId,
+      roomExists: !!room,
+      playerCount: Object.keys(room?.players || {}).length,
+      socketRooms: [...socket.rooms],
+    });
+    
     if (!room) {
+      console.log(`❌ Room not found: ${resolvedRoomCode}`);
       if (typeof ack === 'function') ack({ ok: false, message: 'Room not found' });
       return;
     }
     
     if (room.hostId !== pid) {
+      console.log(`❌ Only host can start. Host: ${room.hostId}, Requester: ${pid}`);
       if (typeof ack === 'function') ack({ ok: false, message: 'Only host can start' });
       return;
     }
 
     roomManager.initBarkingBattle(resolvedRoomCode);
+    console.log(`📢 Broadcasting BARKING_BATTLE_STARTED to room ${resolvedRoomCode} (${Object.keys(room.players).length} players)`);
     io.to(resolvedRoomCode).emit('BARKING_BATTLE_STARTED', {
       roomCode: resolvedRoomCode,
       duration: 30,
       players: room.players,
     });
     if (typeof ack === 'function') ack({ ok: true });
-    console.log(`🐕 Barking Battle started in room ${resolvedRoomCode}`);
+    console.log(`✅ 🐕 Barking Battle started in room ${resolvedRoomCode}`);
   });
 
   socket.on('SUBMIT_BARK', ({ roomCode, playerId } = {}) => {
