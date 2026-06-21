@@ -86,6 +86,7 @@ io.on('connection', (socket) => {
     room.gameMode = 'battle';
     room.gameState = 'SETUP';
     io.to(resolvedRoomCode).emit('GAME_STARTED', { 
+      roomCode: resolvedRoomCode,
       gameMode: 'battle',
       players: room.players,
       hostId: room.hostId,

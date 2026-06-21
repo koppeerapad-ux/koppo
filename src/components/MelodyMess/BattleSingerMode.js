@@ -174,7 +174,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setDebugMessage(`START_ERROR received: ${message}`);
     });
 
-    newSocket.on('GAME_STARTED', ({ gameMode, players: playerList, hostId: roomHostId }) => {
+    newSocket.on('GAME_STARTED', ({ roomCode: payloadRoomCode, gameMode, players: playerList, hostId: roomHostId }) => {
       const normalizedPlayers = normalizePlayers(playerList, roomHostId);
       const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
       setHostId(inferredHostId);
@@ -188,8 +188,9 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       console.log('🎬 GAME_STARTED received, host:', inferredHostId, 'player:', playerId, 'state:', playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP');
       // Navigate to dedicated game route so UI can be isolated
       try {
-        if (roomCode) {
-          const target = `/melody-mess/game/${roomCode}`;
+        const codeToUse = roomCode || payloadRoomCode;
+        if (codeToUse) {
+          const target = `/melody-mess/game/${codeToUse}`;
           if (window.location.pathname !== target) navigate(target);
         }
       } catch (e) {
