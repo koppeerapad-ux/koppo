@@ -227,7 +227,8 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     });
     setRoomCode(code);
     setGameState('WAITING_PLAYERS');
-  }, [socket, currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, currentUser, playerId]);
 
   useEffect(() => {
     if (!socket || !initialRoomCode || joinRequested || hasJoinedRoom) return;
