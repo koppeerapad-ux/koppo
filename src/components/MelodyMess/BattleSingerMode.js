@@ -93,7 +93,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     newSocket.on('reconnect', (attempt) => {
       console.log('BattleSinger socket reconnected, attempt=', attempt);
       const stored = window.localStorage.getItem(STORAGE_ROOM_KEY);
-      if (stored && hasJoinedRoom) {
+      if (stored) {
         console.log('Attempting rejoin to room after reconnect', stored);
         newSocket.emit('JOIN_ROOM', {
           roomCode: stored,
@@ -174,15 +174,20 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     newSocket.on('GAME_STARTED', ({ roomCode: payloadRoomCode, gameMode, players: playerList, hostId: roomHostId }) => {
       const normalizedPlayers = normalizePlayers(playerList, roomHostId);
       const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
+      const newState = playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP';
+      
+      console.log('🎬 GAME_STARTED received', {
+        playerId,
+        inferredHostId,
+        newState,
+        playerCount: Object.keys(normalizedPlayers).length,
+        currentGameState: gameState,
+      });
+      
       setHostId(inferredHostId);
       setPlayers(normalizedPlayers);
-      if (playerId === inferredHostId) {
-        setGameState('SETUP');
-      } else {
-        setGameState('WAITING_SETUP');
-      }
-      setDebugMessage(`GAME_STARTED received: player=${playerId} host=${inferredHostId} state=${playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP'}`);
-      console.log('🎬 GAME_STARTED received, host:', inferredHostId, 'player:', playerId, 'state:', playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP');
+      setGameState(newState);
+      setDebugMessage(`GAME_STARTED: player=${playerId} host=${inferredHostId} state=${newState}`);
       // Don't navigate - stay on same socket connection to receive follow-up events
     });
 
@@ -238,6 +243,31 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     return () => {
       if (socket && socket.off) {
         socket.off('connect', attemptJoin);
+      }
+    };
+  }, [socket, initialRoomCode, joinRequested, hasJoinedRoom, handleJoinRoom]);
+
+  // Auto-rejoin if roomCode is stored (user refreshed while in game)
+  useEffect(() => {
+    if (!socket || initialRoomCode || joinRequested || hasJoinedRoom) return;
+    
+    const storedRoomCode = window.localStorage.getItem(STORAGE_ROOM_KEY);
+    if (!storedRoomCode) return;
+
+    const attemptAutoJoin = () => {
+      console.log('Auto-joining stored room:', storedRoomCode);
+      handleJoinRoom(storedRoomCode);
+    };
+
+    if (socket.connected) {
+      attemptAutoJoin();
+      return;
+    }
+
+    socket.once('connect', attemptAutoJoin);
+    return () => {
+      if (socket && socket.off) {
+        socket.off('connect', attemptAutoJoin);
       }
     };
   }, [socket, initialRoomCode, joinRequested, hasJoinedRoom, handleJoinRoom]);
