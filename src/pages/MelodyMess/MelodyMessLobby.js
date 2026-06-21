@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../config/AuthContext';
 import BattleSingerMode from '../../components/MelodyMess/BattleSingerMode';
 import SongChainMode from '../../components/MelodyMess/SongChainMode';
+import SettingsModal from '../../components/MelodyMess/SettingsModal';
 import '../MelodyMess/MelodyMess.css';
 
 const MelodyMessLobby = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [gameMode, setGameMode] = useState(null);
   const [roomCode, setRoomCode] = useState('');
+  const [pendingRoomCode, setPendingRoomCode] = useState(null);
   const [showJoinInput, setShowJoinInput] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
 
   if (!currentUser) {
@@ -25,7 +28,10 @@ const MelodyMessLobby = () => {
   }
 
   if (gameMode === 'battle') {
-    return <BattleSingerMode onBack={() => setGameMode(null)} />;
+    return <BattleSingerMode onBack={() => {
+      setGameMode(null);
+      setPendingRoomCode(null);
+    }} initialRoomCode={pendingRoomCode} />;
   }
 
   if (gameMode === 'chain') {
@@ -47,7 +53,25 @@ const MelodyMessLobby = () => {
           </div>
           <div className="user-points">⭐ 1,250</div>
         </div>
-        <button className="settings-btn">⚙️</button>
+        <div className="header-right">
+          <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
+          <button 
+            className="logout-header-btn" 
+            onClick={async () => {
+              if (window.confirm('ออกจากระบบจริงหรือ?')) {
+                try {
+                  await logout();
+                  navigate('/login');
+                } catch (error) {
+                  alert('❌ ออกจากระบบล้มเหลว: ' + error.message);
+                }
+              }
+            }}
+            title="Logout"
+          >
+            🚪
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -117,6 +141,9 @@ const MelodyMessLobby = () => {
                 className="join-btn"
                 onClick={() => {
                   if (roomCode.length === 6) {
+                    setPendingRoomCode(roomCode);
+                    setRoomCode('');
+                    setShowJoinInput(false);
                     setGameMode('battle');
                   }
                 }}
@@ -214,6 +241,12 @@ const MelodyMessLobby = () => {
       <div className="online-status">
         🟢 ออนไลน์ 542 คน
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={showSettings} 
+        onClose={() => setShowSettings(false)}
+      />
     </div>
   );
 };

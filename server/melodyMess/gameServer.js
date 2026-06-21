@@ -6,57 +6,93 @@ const RoomManager = require('./roomManager');
 
 const app = express();
 const server = http.createServer(app);
+const corsOrigin = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://testweb67-9c814.web.app' : true);
 const io = socketIO(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || '*',
+    origin: corsOrigin,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || true }));
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 
 const roomManager = new RoomManager();
+const socketToPlayer = new Map();
 
 // Socket.io Connection Handler
 io.on('connection', (socket) => {
   console.log(`🎤 User connected: ${socket.id}`);
 
   // Create or join room
-  socket.on('CREATE_ROOM', (userData) => {
-    const roomCode = roomManager.createRoom(socket.id, userData);
+  socket.on('CREATE_ROOM', ({ playerId, userData } = {}) => {
+    const pid = playerId || socket.id;
+    const roomCode = roomManager.createRoom(pid, userData || {});
+    const room = roomManager.getRoom(roomCode);
+    // map socket -> player
+    socketToPlayer.set(socket.id, pid);
+    // attach socketId to player record
+    if (room && room.players[pid]) room.players[pid].socketId = socket.id;
     socket.join(roomCode);
-    socket.emit('ROOM_CREATED', { roomCode, playerId: socket.id });
-    console.log(`✨ Room created: ${roomCode}`);
+    socket.emit('ROOM_CREATED', {
+      roomCode,
+      playerId: pid,
+      hostId: room.hostId,
+      players: room.players,
+    });
+    io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
+    console.log(`✨ Room created: ${roomCode} by host ${pid}`);
   });
 
-  socket.on('JOIN_ROOM', ({ roomCode, userData }) => {
-    const room = roomManager.joinRoom(roomCode, socket.id, userData);
+  socket.on('JOIN_ROOM', ({ roomCode, userData, playerId } = {}) => {
+    const pid = playerId || socket.id;
+    const room = roomManager.joinRoom(roomCode, pid, userData || {}, socket.id);
     if (room) {
+      socketToPlayer.set(socket.id, pid);
       socket.join(roomCode);
-      socket.emit('ROOM_JOINED', { 
-        roomCode, 
-        playerId: socket.id, 
-        players: room.players 
+      socket.emit('ROOM_JOINED', {
+        roomCode,
+        playerId: pid,
+        hostId: room.hostId,
+        players: room.players,
       });
-      io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players });
-      console.log(`➕ Player joined room ${roomCode}`);
+      io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
+      console.log(`➕ Player joined room ${roomCode} (${pid})`);
     } else {
-      socket.emit('JOIN_ERROR', { message: 'Room not found or full' });
+      const roomExists = roomManager.getRoom(roomCode);
+      const message = roomExists ? 'ห้องเต็มหรือผู้เล่นถึงขีดจำกัด' : 'ไม่พบห้องนี้';
+      socket.emit('JOIN_ERROR', { message });
     }
   });
+
 
   // Mode 1: Battle Singer
-  socket.on('START_BATTLE_SINGER', ({ roomCode, mode = 'battle' }) => {
-    const room = roomManager.getRoom(roomCode);
-    if (room) {
-      room.gameMode = 'battle';
-      room.gameState = 'SETUP';
-      io.to(roomCode).emit('GAME_STARTED', { 
-        gameMode: 'battle',
-        players: room.players 
-      });
+  socket.on('START_BATTLE_SINGER', ({ roomCode, playerId, mode = 'battle' } = {}, ack) => {
+    const resolvedRoomCode = roomCode || [...socket.rooms].find((r) => r !== socket.id);
+    const room = roomManager.getRoom(resolvedRoomCode);
+    const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
+    console.log('START_BATTLE_SINGER received', { resolvedRoomCode, pid, socketId: socket.id, roomExists: !!room, hostId: room?.hostId });
+    if (!room) {
+      if (typeof ack === 'function') ack({ ok: false, message: 'Room not found' });
+      socket.emit('START_ERROR', { message: 'Room not found' });
+      return;
     }
+    if (room.hostId !== pid) {
+      if (typeof ack === 'function') ack({ ok: false, message: 'Only host can start game' });
+      socket.emit('START_ERROR', { message: 'Only host can start game' });
+      return;
+    }
+    room.gameMode = 'battle';
+    room.gameState = 'SETUP';
+    io.to(resolvedRoomCode).emit('GAME_STARTED', { 
+      gameMode: 'battle',
+      players: room.players,
+      hostId: room.hostId,
+    });
+    io.to(resolvedRoomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
+    if (typeof ack === 'function') ack({ ok: true });
+    console.log(`▶️ Battle Singer started for room ${resolvedRoomCode} by ${pid}`);
   });
 
   socket.on('SET_CHALLENGE', ({ roomCode, challengeText }) => {
@@ -74,19 +110,21 @@ io.on('connection', (socket) => {
   });
 
   socket.on('AUDIO_CHUNK', ({ roomCode, audioBlob, playerId, timestamp }) => {
+    const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     const room = roomManager.getRoom(roomCode);
-    if (room && room.players[playerId]) {
+    if (room && room.players[pid]) {
       if (!room.audioRecordings) room.audioRecordings = {};
       if (!room.audioRecordings[playerId]) room.audioRecordings[playerId] = [];
-      room.audioRecordings[playerId].push(audioBlob);
+      room.audioRecordings[pid].push(audioBlob);
     }
   });
 
-  socket.on('AUDIO_FINISHED', ({ roomCode, playerId, audioData }) => {
+  socket.on('AUDIO_FINISHED', ({ roomCode, playerId, audioData } = {}) => {
+    const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     const room = roomManager.getRoom(roomCode);
-    if (room) {
-      room.players[playerId].audioData = audioData;
-      room.players[playerId].recordingComplete = true;
+    if (room && room.players[pid]) {
+      room.players[pid].audioData = audioData;
+      room.players[pid].recordingComplete = true;
 
       const allRecorded = Object.values(room.players).every(p => p.recordingComplete);
       if (allRecorded) {
@@ -100,11 +138,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('VOTE', ({ roomCode, playerId, votedFor }) => {
+  socket.on('VOTE', ({ roomCode, playerId, votedFor } = {}) => {
+    const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     const room = roomManager.getRoom(roomCode);
     if (room) {
       if (!room.votes) room.votes = {};
-      room.votes[playerId] = votedFor;
+      room.votes[pid] = votedFor;
 
       const allVoted = Object.keys(room.votes).length === Object.keys(room.players).length - 1;
       if (allVoted) {
@@ -117,13 +156,14 @@ io.on('connection', (socket) => {
   });
 
   // Mode 2: Song Chain (placeholder)
-  socket.on('START_SONG_CHAIN', ({ roomCode }) => {
-    const room = roomManager.getRoom(roomCode);
+  socket.on('START_SONG_CHAIN', ({ roomCode } = {}) => {
+    const resolvedRoomCode = roomCode || [...socket.rooms].find((r) => r !== socket.id);
+    const room = roomManager.getRoom(resolvedRoomCode);
     if (room) {
       room.gameMode = 'chain';
       room.gameState = 'WAITING_ORIGIN';
       room.playerQueue = Object.keys(room.players);
-      io.to(roomCode).emit('CHAIN_STARTED', { 
+      io.to(resolvedRoomCode).emit('CHAIN_STARTED', { 
         queue: room.playerQueue,
         currentPlayer: room.playerQueue[0]
       });
@@ -131,8 +171,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    roomManager.removePlayer(socket.id);
-    console.log(`❌ User disconnected: ${socket.id}`);
+    const pid = socketToPlayer.get(socket.id) || socket.id;
+    roomManager.removePlayer(pid);
+    socketToPlayer.delete(socket.id);
+    console.log(`❌ User disconnected: ${pid} (socket ${socket.id})`);
   });
 });
 

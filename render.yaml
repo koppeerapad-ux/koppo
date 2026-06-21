@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: melody-mess-socket
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:socket
+    plan: free
+    region: singapore
+    envVars:
+      - key: SOCKET_PORT
+        value: 3003
+      - key: SOCKET_HOST
+        value: "0.0.0.0"
+      - key: FRONTEND_URL
+        value: https://testweb67-9c814.web.app
+      - key: NODE_ENV
+        value: production

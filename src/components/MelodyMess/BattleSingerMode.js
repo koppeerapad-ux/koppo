@@ -5,11 +5,24 @@ import { AudioRecorder, playAudio, stopAudio } from '../../utils/audioProcessing
 import { getSocketUrl } from '../../utils/socketUrl';
 import './BattleSinger.css';
 
-const BattleSingerMode = ({ onBack }) => {
+const STORAGE_ROOM_KEY = 'melody_mess_roomCode';
+const STORAGE_PLAYER_KEY = 'melody_mess_playerId';
+
+const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const { currentUser } = useAuth();
+  const [playerId] = useState(() => {
+    let pid = window.localStorage.getItem(STORAGE_PLAYER_KEY);
+    if (!pid) {
+      pid = `p_${Date.now().toString(36)}_${Math.random().toString(36).substring(2,8)}`;
+      window.localStorage.setItem(STORAGE_PLAYER_KEY, pid);
+    }
+    return pid;
+  });
   const [socket, setSocket] = useState(null);
   const [gameState, setGameState] = useState('LOBBY'); // LOBBY, SETUP, RECORDING, PLAYBACK, VOTING, RESULTS
-  const [roomCode, setRoomCode] = useState(null);
+  const [roomCode, setRoomCode] = useState(() => {
+    return initialRoomCode || window.localStorage.getItem(STORAGE_ROOM_KEY) || null;
+  });
   const [players, setPlayers] = useState({});
   const [challenge, setChallenge] = useState('');
   const [challengeInput, setChallengeInput] = useState('');
@@ -20,21 +33,79 @@ const BattleSingerMode = ({ onBack }) => {
   const [votes, setVotes] = useState({});
   const [results, setResults] = useState([]);
   const [socketError, setSocketError] = useState(null);
+  const [debugMessage, setDebugMessage] = useState(null);
+  const [currentScreen, setCurrentScreen] = useState('LOBBY');
   const [socketUrl, setSocketUrl] = useState(null);
+  const [manualSocketUrl, setManualSocketUrl] = useState('https://koppo.onrender.com');
+  const [hostId, setHostId] = useState(null);
+  const [socketId, setSocketId] = useState(null);
+  const [joinRequested, setJoinRequested] = useState(false);
+  const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
+  const isConnected = socket?.connected;
+  const playerCount = Object.keys(players).length;
+  const isHost = playerId && hostId && playerId === hostId;
+
+  const normalizePlayers = (playerList = {}, roomHostId) => {
+    const normalized = {};
+    Object.entries(playerList).forEach(([key, player]) => {
+      const finalPlayerId = player?.playerId || player?.id || key;
+      normalized[finalPlayerId] = {
+        ...player,
+        id: finalPlayerId,
+        playerId: finalPlayerId,
+        isHost: player?.isHost || Boolean(roomHostId ? roomHostId === finalPlayerId : player?.isHost),
+      };
+    });
+    return normalized;
+  };
+
+  const inferHostId = (playerList, roomHostId) => {
+    if (roomHostId) return roomHostId;
+    const playersArray = Object.values(playerList || {});
+    const hostFromFlag = playersArray.find((p) => p?.isHost);
+    const fallbackPlayer = playersArray[0];
+    return hostFromFlag?.playerId || hostFromFlag?.id || fallbackPlayer?.playerId || fallbackPlayer?.id || null;
+  };
 
   // Initialize Socket.io
   useEffect(() => {
     const resolvedSocketUrl = getSocketUrl();
     setSocketUrl(resolvedSocketUrl);
+    setManualSocketUrl(resolvedSocketUrl || 'https://koppo.onrender.com');
     const newSocket = io(resolvedSocketUrl, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 3,
+      path: '/socket.io',
+      transports: ['websocket'],
+      timeout: 15000,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     });
     console.log('Connecting BattleSinger socket to', resolvedSocketUrl);
 
     newSocket.on('connect', () => {
       console.log('BattleSinger socket connected:', newSocket.id);
       setSocketError(null);
+      setSocketId(newSocket.id);
+      setDebugMessage(`connect: socket=${newSocket.id}`);
+    });
+
+    // Attempt to rejoin room automatically after a reconnect
+    newSocket.on('reconnect', (attempt) => {
+      console.log('BattleSinger socket reconnected, attempt=', attempt);
+      const stored = window.localStorage.getItem(STORAGE_ROOM_KEY);
+      if (stored && hasJoinedRoom) {
+        console.log('Attempting rejoin to room after reconnect', stored);
+        newSocket.emit('JOIN_ROOM', {
+          roomCode: stored,
+          playerId,
+          userData: { name: currentUser.displayName, photoURL: currentUser.photoURL },
+        });
+      }
+    });
+
+    newSocket.on('reconnect_error', (err) => {
+      console.error('Reconnect error:', err);
+      setSocketError('Reconnect failed: ' + (err?.message || String(err)));
     });
 
     newSocket.on('connect_error', (error) => {
@@ -47,22 +118,71 @@ const BattleSingerMode = ({ onBack }) => {
       setSocketError(error?.message || String(error));
     });
 
-    newSocket.on('ROOM_CREATED', ({ roomCode: code, playerId }) => {
+    newSocket.on('ROOM_CREATED', ({ roomCode: code, playerId, hostId: roomHostId, players: playerList }) => {
+      const normalizedPlayers = normalizePlayers(playerList, roomHostId);
+      const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
+      window.localStorage.setItem(STORAGE_ROOM_KEY, code);
       setRoomCode(code);
-      console.log('✨ Room created:', code);
+      setSocketId(newSocket.id);
+      setHostId(inferredHostId);
+      setPlayers(normalizedPlayers);
+      setGameState('WAITING_PLAYERS');
+      setJoinRequested(false);
+      console.log('✨ Room created:', code, normalizedPlayers, 'host:', inferredHostId, 'socket:', newSocket.id);
     });
 
-    newSocket.on('ROOM_JOINED', ({ players: playerList }) => {
-      setPlayers(playerList);
+    newSocket.on('ROOM_JOINED', ({ players: playerList, roomCode: code, hostId: roomHostId, playerId }) => {
+      const normalizedPlayers = normalizePlayers(playerList, roomHostId);
+      const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
+      if (code) {
+        window.localStorage.setItem(STORAGE_ROOM_KEY, code);
+        setRoomCode(code);
+      }
+      setSocketId(newSocket.id);
+      setHostId(inferredHostId);
+      setPlayers(normalizedPlayers);
+      setGameState('WAITING_PLAYERS');
+      setJoinRequested(false);
+      console.log('👥 Joined room:', code, 'host:', inferredHostId, 'playerId:', playerId, 'socket:', newSocket.id);
     });
 
-    newSocket.on('PLAYERS_UPDATE', ({ players: playerList }) => {
-      setPlayers(playerList);
+    // Update player list when server broadcasts changes
+    newSocket.on('PLAYERS_UPDATE', ({ players: playerList, hostId: roomHostId }) => {
+      const normalizedPlayers = normalizePlayers(playerList, roomHostId);
+      const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
+      console.log('PLAYERS_UPDATE received', normalizedPlayers, 'hostId:', inferredHostId, 'rawHostId:', roomHostId);
+      setPlayers(normalizedPlayers);
+      if (inferredHostId) {
+        setHostId(inferredHostId);
+      }
     });
 
-    newSocket.on('GAME_STARTED', ({ gameMode, players: playerList }) => {
-      setGameState('SETUP');
-      setPlayers(playerList);
+    newSocket.on('JOIN_ERROR', ({ message }) => {
+      setSocketError(message || 'ไม่สามารถเข้าร่วมห้องได้');
+      setGameState('LOBBY');
+      setJoinRequested(false);
+      setPlayers({});
+      window.localStorage.removeItem(STORAGE_ROOM_KEY);
+    });
+
+    newSocket.on('START_ERROR', ({ message }) => {
+      console.error('START_ERROR received:', message);
+      setSocketError(message || 'เริ่มเกมล้มเหลว');
+      setDebugMessage(`START_ERROR received: ${message}`);
+    });
+
+    newSocket.on('GAME_STARTED', ({ gameMode, players: playerList, hostId: roomHostId }) => {
+      const normalizedPlayers = normalizePlayers(playerList, roomHostId);
+      const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
+      setHostId(inferredHostId);
+      setPlayers(normalizedPlayers);
+      if (playerId === inferredHostId) {
+        setGameState('SETUP');
+      } else {
+        setGameState('WAITING_SETUP');
+      }
+      setDebugMessage(`GAME_STARTED received: player=${playerId} host=${inferredHostId} state=${playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP'}`);
+      console.log('🎬 GAME_STARTED received, host:', inferredHostId, 'player:', playerId, 'state:', playerId === inferredHostId ? 'SETUP' : 'WAITING_SETUP');
     });
 
     newSocket.on('CHALLENGE_SET', ({ challenge: chal, duration }) => {
@@ -83,20 +203,81 @@ const BattleSingerMode = ({ onBack }) => {
     setSocket(newSocket);
 
     return () => newSocket.disconnect();
-  }, []);
+  }, [currentUser]);
+
+  const handleJoinRoom = React.useCallback((code) => {
+    if (!socket || !code) return;
+    window.localStorage.setItem(STORAGE_ROOM_KEY, code);
+    setSocketError(null);
+    setJoinRequested(true);
+    setHasJoinedRoom(true);
+    socket.emit('JOIN_ROOM', {
+      roomCode: code,
+      playerId,
+      userData: {
+        name: currentUser.displayName,
+        photoURL: currentUser.photoURL,
+      },
+    });
+    setRoomCode(code);
+    setGameState('WAITING_PLAYERS');
+  }, [socket, currentUser]);
+
+  useEffect(() => {
+    if (!socket || !initialRoomCode || joinRequested || hasJoinedRoom) return;
+
+    const attemptJoin = () => handleJoinRoom(initialRoomCode);
+
+    if (socket.connected) {
+      attemptJoin();
+      return;
+    }
+
+    socket.once('connect', attemptJoin);
+    return () => {
+      if (socket && socket.off) {
+        socket.off('connect', attemptJoin);
+      }
+    };
+  }, [socket, initialRoomCode, joinRequested, hasJoinedRoom, handleJoinRoom]);
 
   // Create or join room
   const handleCreateRoom = () => {
     socket?.emit('CREATE_ROOM', {
-      name: currentUser.displayName,
-      photoURL: currentUser.photoURL,
+      playerId,
+      userData: { name: currentUser.displayName, photoURL: currentUser.photoURL },
     });
     setGameState('WAITING_PLAYERS');
   };
 
+  useEffect(() => {
+    setCurrentScreen(gameState);
+  }, [gameState]);
+
   // Start game
   const handleStartGame = () => {
-    socket?.emit('START_BATTLE_SINGER', { roomCode });
+    setDebugMessage(`handleStartGame clicked: roomCode=${roomCode} playerId=${playerId} hostId=${hostId} isHost=${isHost} socketId=${socket?.id}`);
+    if (!socket?.connected) {
+      setSocketError('ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ โปรดลองใหม่อีกครั้ง');
+      return;
+    }
+    if (!roomCode) {
+      setSocketError('ไม่พบรหัสห้อง โปรดเข้าห้องก่อนเริ่มเกม');
+      return;
+    }
+    if (!isHost) {
+      setSocketError('เฉพาะเจ้าของห้องเท่านั้นที่สามารถเริ่มเกมได้');
+      return;
+    }
+    console.log('handleStartGame', { roomCode, playerId, hostId, isHost, socketId: socket.id });
+    setDebugMessage(`emit START_BATTLE_SINGER: roomCode=${roomCode} playerId=${playerId}`);
+    socket.emit('START_BATTLE_SINGER', { roomCode, playerId }, (response) => {
+      console.log('START_BATTLE_SINGER ack', response);
+      setDebugMessage(`START_BATTLE_SINGER ack: ${JSON.stringify(response)}`);
+      if (response?.ok !== true) {
+        setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
+      }
+    });
   };
 
   // Set challenge (host only)
@@ -105,6 +286,15 @@ const BattleSingerMode = ({ onBack }) => {
       socket?.emit('SET_CHALLENGE', { roomCode, challengeText: challengeInput });
       setChallengeInput('');
     }
+  };
+
+  const handleSaveSocketUrl = () => {
+    if (!manualSocketUrl) {
+      setSocketError('โปรดกรอก Socket URL ก่อนบันทึก');
+      return;
+    }
+    window.localStorage.setItem('REACT_APP_SOCKET_URL', manualSocketUrl);
+    window.location.reload();
   };
 
   // Recording functions
@@ -130,7 +320,7 @@ const BattleSingerMode = ({ onBack }) => {
         const base64Data = await recorder.getBlobAsBase64();
         socket?.emit('AUDIO_FINISHED', {
           roomCode,
-          playerId: socket.id,
+          playerId,
           audioData: base64Data,
         });
         setIsRecording(false);
@@ -148,11 +338,38 @@ const BattleSingerMode = ({ onBack }) => {
 
   // Voting
   const handleVote = (votedFor) => {
-    socket?.emit('VOTE', { roomCode, playerId: socket.id, votedFor });
-    setVotes({ ...votes, [socket.id]: votedFor });
+    socket?.emit('VOTE', { roomCode, playerId, votedFor });
+    setVotes({ ...votes, [playerId]: votedFor });
   };
 
   // LOBBY Screen
+  const renderDebugPanel = () => (
+    <div className="debug-panel" style={{
+      position: 'fixed',
+      bottom: 0,
+      right: 0,
+      zIndex: 999,
+      background: 'rgba(0,0,0,0.85)',
+      color: '#fff',
+      padding: '10px',
+      fontSize: '12px',
+      maxWidth: '320px',
+      lineHeight: '1.4',
+    }}>
+      <div><strong>DEBUG PANEL</strong></div>
+      <div>screen: {currentScreen}</div>
+      <div>roomCode: {roomCode || '-'}</div>
+      <div>playerId: {playerId}</div>
+      <div>hostId: {hostId || '-'}</div>
+      <div>isHost: {isHost ? 'yes' : 'no'}</div>
+      <div>socketId: {socketId || '-'}</div>
+      <div>connected: {isConnected ? 'yes' : 'no'}</div>
+      <div>players: {playerCount}</div>
+      {debugMessage && <div>msg: {debugMessage}</div>}
+      {socketError && <div style={{ color: 'lightpink' }}>error: {socketError}</div>}
+    </div>
+  );
+
   if (gameState === 'LOBBY') {
     return (
       <div className="battle-singer-container">
@@ -161,6 +378,19 @@ const BattleSingerMode = ({ onBack }) => {
         {socketUrl && (
           <div className="socket-info">Socket URL: <code>{socketUrl}</code></div>
         )}
+        <div className="socket-override">
+          <label htmlFor="socket-url-input">ตั้งค่า Socket URL</label>
+          <input
+            id="socket-url-input"
+            type="text"
+            value={manualSocketUrl}
+            onChange={(e) => setManualSocketUrl(e.target.value)}
+            className="socket-url-input"
+            placeholder="https://koppo.onrender.com"
+          />
+          <button className="save-socket-url-btn" onClick={handleSaveSocketUrl}>Save Socket URL</button>
+          <small>ถ้าปัจจุบันไม่เชื่อมต่อ ให้บันทึกและรีโหลด</small>
+        </div>
         {socketError && (
           <div className="socket-error">
             <strong>ไม่สามารถเชื่อมต่อเกมเซิร์ฟเวอร์ได้:</strong> {socketError}
@@ -168,6 +398,7 @@ const BattleSingerMode = ({ onBack }) => {
           </div>
         )}
         <button className="create-btn" onClick={handleCreateRoom}>สร้างห้องใหม่</button>
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -196,9 +427,32 @@ const BattleSingerMode = ({ onBack }) => {
           ))}
         </div>
 
-        {Object.keys(players).length > 1 && (
-          <button className="start-btn" onClick={handleStartGame}>เริ่มเกม</button>
+        {Object.keys(players).length > 1 ? (
+          isHost ? (
+            <>
+              <div className="host-badge">คุณคือเจ้าของห้อง</div>
+              <button className="start-btn" type="button" onClick={() => {
+                console.log('start button clicked', { roomCode, playerId, hostId, isHost, gameState, players });
+                handleStartGame();
+              }}>
+                เริ่มเกม
+              </button>
+            </>
+          ) : (
+            <p className="waiting-text">รอให้เจ้าของห้องเริ่มเกม</p>
+          )
+        ) : (
+          <p className="waiting-text">รอให้เพื่อนเข้าห้องอย่างน้อย 1 คนเพื่อเริ่มเกม</p>
         )}
+        {!isConnected && (
+          <p className="socket-warning">ยังไม่เชื่อมต่อเซิร์ฟเวอร์เกม โปรดรอสักครู่</p>
+        )}
+        {debugMessage && (
+          <div className="debug-message">
+            <strong>DEBUG:</strong> {debugMessage}
+          </div>
+        )}
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -216,6 +470,25 @@ const BattleSingerMode = ({ onBack }) => {
           className="challenge-input"
         />
         <button onClick={handleSetChallenge} className="confirm-btn">ตั้งค่า</button>
+      {renderDebugPanel()}
+      </div>
+    );
+  }
+
+  if (gameState === 'WAITING_SETUP') {
+    return (
+      <div className="battle-singer-container">
+        <h2>⌛ รอเจ้าของห้องตั้งค่าท้าทาย</h2>
+        <p>เจ้าของห้องกำลังเตรียมคำสั่งร้อง</p>
+        <div className="players-list">
+          {Object.values(players).map((p) => (
+            <div key={p.id} className="player-item">
+              <img src={p.photoURL} alt={p.name} />
+              <span>{p.name}</span>
+            </div>
+          ))}
+        </div>
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -243,6 +516,7 @@ const BattleSingerMode = ({ onBack }) => {
             </div>
           ))}
         </div>
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -267,6 +541,7 @@ const BattleSingerMode = ({ onBack }) => {
         </div>
 
         <p className="voting-hint">โหวตว่าใครปังสุด ⬇️</p>
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -289,6 +564,7 @@ const BattleSingerMode = ({ onBack }) => {
             </button>
           ))}
         </div>
+      {renderDebugPanel()}
       </div>
     );
   }
@@ -313,6 +589,7 @@ const BattleSingerMode = ({ onBack }) => {
           <button onClick={() => setGameState('WAITING_PLAYERS')}>🔄 เล่นอีกรอบ</button>
           <button onClick={onBack}>← ออกจากห้อง</button>
         </div>
+      {renderDebugPanel()}
       </div>
     );
   }

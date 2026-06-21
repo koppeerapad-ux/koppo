@@ -7,21 +7,24 @@ class RoomManager {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
 
-  createRoom(hostId, userData) {
+  createRoom(hostPlayerId, userData) {
     const roomCode = this.generateRoomCode();
     const room = {
       code: roomCode,
-      hostId: hostId,
+      hostId: hostPlayerId,
       players: {
-        [hostId]: {
-          id: hostId,
+        [hostPlayerId]: {
+          id: hostPlayerId,
+          playerId: hostPlayerId,
+          socketId: null,
+          isHost: true,
           ...userData,
           recordingComplete: false,
           votes: 0,
         },
       },
       gameMode: null, // 'battle' or 'chain'
-      gameState: 'WAITING', // SETUP, RECORDING, PLAYBACK, VOTING, RESULTS
+      gameState: 'WAITING', // SETUP, RECORDING, PLAYBACK, RESULTS
       challenge: null,
       audioRecordings: {},
       votes: {},
@@ -32,13 +35,16 @@ class RoomManager {
     return roomCode;
   }
 
-  joinRoom(roomCode, playerId, userData) {
+  joinRoom(roomCode, playerId, userData, socketId = null) {
     const room = this.rooms.get(roomCode);
     if (!room || Object.keys(room.players).length >= room.maxPlayers) {
       return null;
     }
     room.players[playerId] = {
       id: playerId,
+      playerId,
+      socketId,
+      isHost: false,
       ...userData,
       recordingComplete: false,
       votes: 0,

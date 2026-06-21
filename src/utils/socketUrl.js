@@ -1,16 +1,16 @@
 export function getSocketUrl() {
-  const envSocketUrl =
-    process.env.REACT_APP_SOCKET_URL ||
-    process.env.REACT_APP_API_URL ||
-    process.env.REACT_APP_BACKEND_URL ||
-    process.env.REACT_APP_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL;
+  const isBrowser = typeof window !== 'undefined';
+  const storedSocketUrl = isBrowser ? window.localStorage.getItem('REACT_APP_SOCKET_URL') : null;
+  const envSocketUrl = process.env.REACT_APP_SOCKET_URL;
+  const currentOrigin = isBrowser ? window.location.origin : '';
 
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  if (storedSocketUrl) {
+    return storedSocketUrl;
+  }
 
   if (envSocketUrl) {
     const isLocalSocket = /(localhost|127\.0\.0\.1)(:\d+)?/.test(envSocketUrl);
-    const isLocalFrontend = typeof window !== 'undefined' && /(localhost|127\.0\.0\.1)/.test(window.location.hostname);
+    const isLocalFrontend = isBrowser && /(localhost|127\.0\.0\.1)/.test(window.location.hostname);
 
     if (isLocalSocket && !isLocalFrontend) {
       console.warn('[socketUrl] Ignoring local socket URL in production. Using current origin instead.');

@@ -7,6 +7,15 @@ import './SongChain.css';
 
 const SongChainMode = ({ onBack }) => {
   const { currentUser } = useAuth();
+  const STORAGE_PLAYER_KEY = 'melody_mess_playerId';
+  const [playerId] = useState(() => {
+    let pid = window.localStorage.getItem(STORAGE_PLAYER_KEY);
+    if (!pid) {
+      pid = `p_${Date.now().toString(36)}_${Math.random().toString(36).substring(2,8)}`;
+      window.localStorage.setItem(STORAGE_PLAYER_KEY, pid);
+    }
+    return pid;
+  });
   const [socket, setSocket] = useState(null);
   const [gameState, setGameState] = useState('LOBBY'); // LOBBY, WAITING, ORIGIN, CHAIN, RESULT
   const [roomCode, setRoomCode] = useState(null);
@@ -21,20 +30,44 @@ const SongChainMode = ({ onBack }) => {
   const [finalAudio, setFinalAudio] = useState(null);
   const [socketError, setSocketError] = useState(null);
   const [socketUrl, setSocketUrl] = useState(null);
+  const isConnected = socket?.connected;
 
   // Initialize Socket.io
   useEffect(() => {
     const resolvedSocketUrl = getSocketUrl();
     setSocketUrl(resolvedSocketUrl);
     const newSocket = io(resolvedSocketUrl, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 3,
+      path: '/socket.io',
+      transports: ['websocket'],
+      timeout: 15000,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     });
     console.log('Connecting SongChain socket to', resolvedSocketUrl);
 
     newSocket.on('connect', () => {
       console.log('SongChain socket connected:', newSocket.id);
       setSocketError(null);
+    });
+
+    // Attempt to rejoin room automatically after reconnect
+    newSocket.on('reconnect', (attempt) => {
+      console.log('SongChain socket reconnected, attempt=', attempt);
+      const stored = window.localStorage.getItem('melody_mess_roomCode');
+      if (stored) {
+        console.log('Attempting rejoin to room', stored);
+        newSocket.emit('JOIN_ROOM', {
+          roomCode: stored,
+          playerId,
+          userData: { name: currentUser.displayName, photoURL: currentUser.photoURL },
+        });
+      }
+    });
+
+    newSocket.on('reconnect_error', (err) => {
+      console.error('Reconnect error:', err);
+      setSocketError('Reconnect failed: ' + (err?.message || String(err)));
     });
 
     newSocket.on('connect_error', (error) => {
@@ -75,23 +108,34 @@ const SongChainMode = ({ onBack }) => {
       setPlayers(playerList);
     });
 
+    // Update player list when server broadcasts changes
+    newSocket.on('PLAYERS_UPDATE', ({ players: playerList }) => {
+      console.log('PLAYERS_UPDATE received (SongChain)', playerList);
+      setPlayers(playerList || {});
+    });
+
     setSocket(newSocket);
 
     return () => newSocket.disconnect();
-  }, []);
+  }, [currentUser]);
 
   // Create room
   const handleCreateRoom = () => {
-    socket?.emit('CREATE_ROOM', {
-      name: currentUser.displayName,
-      photoURL: currentUser.photoURL,
-    });
+    socket?.emit('CREATE_ROOM', { playerId, userData: { name: currentUser.displayName, photoURL: currentUser.photoURL } });
     setGameState('WAITING_PLAYERS');
   };
 
   // Start Chain Mode
   const handleStartChain = () => {
-    socket?.emit('START_SONG_CHAIN', { roomCode });
+    if (!socket?.connected) {
+      setSocketError('ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ โปรดลองใหม่อีกครั้ง');
+      return;
+    }
+    if (!roomCode) {
+      setSocketError('ไม่พบรหัสห้อง โปรดเข้าห้องก่อนเริ่มเกม');
+      return;
+    }
+    socket.emit('START_SONG_CHAIN', { roomCode });
   };
 
   // Set origin song and record first part
@@ -131,7 +175,7 @@ const SongChainMode = ({ onBack }) => {
         } else {
           socket?.emit('CHAIN_RECORDED', {
             roomCode,
-            playerId: socket.id,
+            playerId,
             audioData: base64Data,
           });
         }
@@ -185,8 +229,13 @@ const SongChainMode = ({ onBack }) => {
           ))}
         </div>
 
-        {Object.keys(players).length >= 2 && (
+        {Object.keys(players).length >= 2 ? (
           <button className="start-btn" onClick={handleStartChain}>เริ่มร้องต่อเพลง</button>
+        ) : (
+          <p className="waiting-text">รอผู้เล่นอย่างน้อย 2 คนเพื่อเริ่มร้องต่อเพลง</p>
+        )}
+        {!isConnected && (
+          <p className="socket-warning">ยังไม่เชื่อมต่อเซิร์ฟเวอร์เกม โปรดรอสักครู่</p>
         )}
       </div>
     );
