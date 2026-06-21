@@ -43,6 +43,9 @@ io.on('connection', (socket) => {
       playerId: pid,
       hostId: room.hostId,
       players: room.players,
+      gameState: room.gameState,
+      gameMode: room.gameMode,
+      challenge: room.challenge,
     });
     io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
   });
@@ -61,6 +64,9 @@ io.on('connection', (socket) => {
         playerId: pid,
         hostId: room.hostId,
         players: room.players,
+        gameState: room.gameState,
+        gameMode: room.gameMode,
+        challenge: room.challenge,
       });
       io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
     } else {
@@ -440,11 +446,51 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    const pid = socketToPlayer.get(socket.id) || socket.id;
+  socket.on('LEAVE_ROOM', ({ roomCode, playerId } = {}) => {
+    const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
+    console.log(`🚪 LEAVE_ROOM received from ${pid} for room ${roomCode}`);
     roomManager.removePlayer(pid);
     socketToPlayer.delete(socket.id);
+    socket.leave(roomCode);
+    
+    const room = roomManager.getRoom(roomCode);
+    if (room) {
+      io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const pid = socketToPlayer.get(socket.id) || socket.id;
+    socketToPlayer.delete(socket.id);
     console.log(`❌ User disconnected: ${pid} (socket ${socket.id})`);
+    
+    // 5-second grace period for player reconnecting before removing from room
+    setTimeout(() => {
+      const activePids = [...socketToPlayer.values()];
+      const isReconnected = activePids.includes(pid);
+      
+      if (!isReconnected) {
+        let playerRoomCode = null;
+        for (const [roomCode, room] of roomManager.rooms) {
+          if (room.players[pid]) {
+            playerRoomCode = roomCode;
+            break;
+          }
+        }
+        
+        roomManager.removePlayer(pid);
+        console.log(`🧹 Grace period expired: Removed player ${pid} from room`);
+        
+        if (playerRoomCode) {
+          const room = roomManager.getRoom(playerRoomCode);
+          if (room) {
+            io.to(playerRoomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
+          }
+        }
+      } else {
+        console.log(`🛡️ Player ${pid} reconnected during grace period, keeping in room`);
+      }
+    }, 5000);
   });
 });
 

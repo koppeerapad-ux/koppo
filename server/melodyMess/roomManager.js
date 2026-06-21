@@ -37,14 +37,19 @@ class RoomManager {
 
   joinRoom(roomCode, playerId, userData, socketId = null) {
     const room = this.rooms.get(roomCode);
-    if (!room || Object.keys(room.players).length >= room.maxPlayers) {
+    if (!room) {
       return null;
     }
+    // If the player is not already in the room, check the maximum player limit
+    if (!room.players[playerId] && Object.keys(room.players).length >= room.maxPlayers) {
+      return null;
+    }
+    const isPlayerHost = room.hostId === playerId;
     room.players[playerId] = {
       id: playerId,
       playerId,
       socketId,
-      isHost: false,
+      isHost: isPlayerHost,
       ...userData,
       recordingComplete: false,
       votes: 0,

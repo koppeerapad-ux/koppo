@@ -23,6 +23,10 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const [roomCode, setRoomCode] = useState(() => {
     return initialRoomCode || window.localStorage.getItem(STORAGE_ROOM_KEY) || null;
   });
+  const roomCodeRef = React.useRef(roomCode);
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+  }, [roomCode]);
   const [players, setPlayers] = useState({});
   const [challenge, setChallenge] = useState('');
   const [challengeInput, setChallengeInput] = useState('');
@@ -39,8 +43,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const [manualSocketUrl, setManualSocketUrl] = useState('https://koppo.onrender.com');
   const [hostId, setHostId] = useState(null);
   const [socketId, setSocketId] = useState(null);
-  const [joinRequested, setJoinRequested] = useState(false);
-  const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
+
   const [selectedGameMode, setSelectedGameMode] = useState('battle_singer'); // New: game mode selection
   const isConnected = socket?.connected;
   const playerCount = Object.keys(players).length;
@@ -88,16 +91,12 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setSocketError(null);
       setSocketId(newSocket.id);
       setDebugMessage(`connect: socket=${newSocket.id}`);
-    });
-
-    // Attempt to rejoin room automatically after a reconnect
-    newSocket.on('reconnect', (attempt) => {
-      console.log('BattleSinger socket reconnected, attempt=', attempt);
-      const stored = window.localStorage.getItem(STORAGE_ROOM_KEY);
-      if (stored) {
-        console.log('Attempting rejoin to room after reconnect', stored);
+      
+      const currentCode = roomCodeRef.current || window.localStorage.getItem(STORAGE_ROOM_KEY);
+      if (currentCode) {
+        console.log('Auto-joining room on connect/reconnect:', currentCode);
         newSocket.emit('JOIN_ROOM', {
-          roomCode: stored,
+          roomCode: currentCode,
           playerId,
           userData: { name: currentUser.displayName, photoURL: currentUser.photoURL },
         });
@@ -119,7 +118,8 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setSocketError(error?.message || String(error));
     });
 
-    newSocket.on('ROOM_CREATED', ({ roomCode: code, playerId, hostId: roomHostId, players: playerList }) => {
+    newSocket.on('ROOM_CREATED', ({ roomCode: code, playerId: roomPlayerId, hostId: roomHostId, players: playerList, gameState: serverGameState, gameMode: serverGameMode, challenge: serverChallenge }) => {
+      console.log('✨ ROOM_CREATED received from backend', { code, playerId: roomPlayerId, roomHostId, playerCount: Object.keys(playerList).length });
       const normalizedPlayers = normalizePlayers(playerList, roomHostId);
       const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
       window.localStorage.setItem(STORAGE_ROOM_KEY, code);
@@ -127,12 +127,33 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setSocketId(newSocket.id);
       setHostId(inferredHostId);
       setPlayers(normalizedPlayers);
-      setGameState('WAITING_PLAYERS');
-      setJoinRequested(false);
-      console.log('✨ Room created:', code, normalizedPlayers, 'host:', inferredHostId, 'socket:', newSocket.id);
+      
+      const isPlayerHost = playerId === inferredHostId;
+      if (serverGameState && serverGameState !== 'WAITING') {
+        const clientState = serverGameState === 'SETUP' ? (isPlayerHost ? 'SETUP' : 'WAITING_SETUP') : serverGameState;
+        setGameState(clientState);
+      } else {
+        setGameState('WAITING_PLAYERS');
+      }
+      if (serverGameMode) {
+        setSelectedGameMode(serverGameMode);
+      }
+      if (serverChallenge) {
+        setChallenge(serverChallenge);
+      }
+      console.log('✨ Room created result:', {
+        code,
+        normalizedPlayers,
+        receivedHostId: roomHostId,
+        inferredHostId,
+        localPlayerId: roomPlayerId,
+        socketId: newSocket.id,
+        isHostCheck: playerId === inferredHostId
+      });
     });
 
-    newSocket.on('ROOM_JOINED', ({ players: playerList, roomCode: code, hostId: roomHostId, playerId }) => {
+    newSocket.on('ROOM_JOINED', ({ players: playerList, roomCode: code, hostId: roomHostId, playerId: joinedPid, gameState: serverGameState, gameMode: serverGameMode, challenge: serverChallenge }) => {
+      console.log('👥 ROOM_JOINED received from backend', { code, roomHostId, playerCount: Object.keys(playerList).length });
       const normalizedPlayers = normalizePlayers(playerList, roomHostId);
       const inferredHostId = inferHostId(normalizedPlayers, roomHostId);
       if (code) {
@@ -142,9 +163,29 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       setSocketId(newSocket.id);
       setHostId(inferredHostId);
       setPlayers(normalizedPlayers);
-      setGameState('WAITING_PLAYERS');
-      setJoinRequested(false);
-      console.log('👥 Joined room:', code, 'host:', inferredHostId, 'playerId:', playerId, 'socket:', newSocket.id);
+      
+      const isPlayerHost = playerId === inferredHostId;
+      if (serverGameState && serverGameState !== 'WAITING') {
+        const clientState = serverGameState === 'SETUP' ? (isPlayerHost ? 'SETUP' : 'WAITING_SETUP') : serverGameState;
+        setGameState(clientState);
+      } else {
+        setGameState('WAITING_PLAYERS');
+      }
+      if (serverGameMode) {
+        setSelectedGameMode(serverGameMode);
+      }
+      if (serverChallenge) {
+        setChallenge(serverChallenge);
+      }
+      console.log('👥 Room joined result:', {
+        code,
+        normalizedPlayers,
+        receivedHostId: roomHostId,
+        inferredHostId,
+        joinedPlayerId: joinedPid,
+        socketId: newSocket.id,
+        isHostCheck: playerId === inferredHostId
+      });
     });
 
     // Update player list when server broadcasts changes
@@ -161,7 +202,6 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     newSocket.on('JOIN_ERROR', ({ message }) => {
       setSocketError(message || 'ไม่สามารถเข้าร่วมห้องได้');
       setGameState('LOBBY');
-      setJoinRequested(false);
       setPlayers({});
       window.localStorage.removeItem(STORAGE_ROOM_KEY);
     });
@@ -294,72 +334,16 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     setSocket(newSocket);
 
     return () => newSocket.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  const handleJoinRoom = React.useCallback((code) => {
-    if (!socket || !code) return;
-    window.localStorage.setItem(STORAGE_ROOM_KEY, code);
-    setSocketError(null);
-    setJoinRequested(true);
-    setHasJoinedRoom(true);
-    socket.emit('JOIN_ROOM', {
-      roomCode: code,
-      playerId,
-      userData: {
-        name: currentUser.displayName,
-        photoURL: currentUser.photoURL,
-      },
-    });
-    setRoomCode(code);
-    setGameState('WAITING_PLAYERS');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, currentUser, playerId]);
 
-  useEffect(() => {
-    if (!socket || !initialRoomCode || joinRequested || hasJoinedRoom) return;
 
-    const attemptJoin = () => handleJoinRoom(initialRoomCode);
 
-    if (socket.connected) {
-      attemptJoin();
-      return;
-    }
-
-    socket.once('connect', attemptJoin);
-    return () => {
-      if (socket && socket.off) {
-        socket.off('connect', attemptJoin);
-      }
-    };
-  }, [socket, initialRoomCode, joinRequested, hasJoinedRoom, handleJoinRoom]);
-
-  // Auto-rejoin if roomCode is stored (user refreshed while in game)
-  useEffect(() => {
-    if (!socket || initialRoomCode || joinRequested || hasJoinedRoom) return;
-    
-    const storedRoomCode = window.localStorage.getItem(STORAGE_ROOM_KEY);
-    if (!storedRoomCode) return;
-
-    const attemptAutoJoin = () => {
-      console.log('Auto-joining stored room:', storedRoomCode);
-      handleJoinRoom(storedRoomCode);
-    };
-
-    if (socket.connected) {
-      attemptAutoJoin();
-      return;
-    }
-
-    socket.once('connect', attemptAutoJoin);
-    return () => {
-      if (socket && socket.off) {
-        socket.off('connect', attemptAutoJoin);
-      }
-    };
-  }, [socket, initialRoomCode, joinRequested, hasJoinedRoom, handleJoinRoom]);
 
   // Create or join room
   const handleCreateRoom = () => {
+    console.log('🏠 handleCreateRoom called', { playerId, currentUserName: currentUser.displayName, socketId: socket?.id, socketConnected: socket?.connected });
     socket?.emit('CREATE_ROOM', {
       playerId,
       userData: { name: currentUser.displayName, photoURL: currentUser.photoURL },
@@ -373,30 +357,36 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
 
   // Start game
   const handleStartGame = () => {
-    setDebugMessage(`handleStartGame clicked: mode=${selectedGameMode} roomCode=${roomCode} playerId=${playerId} hostId=${hostId} isHost=${isHost} socketId=${socket?.id}`);
+    setDebugMessage(`handleStartGame clicked: mode=${selectedGameMode} roomCode=${roomCode} playerId=${playerId} hostId=${hostId} isHost=${isHost} socketId=${socket?.id} connected=${socket?.connected}`);
+    console.log('🎮 handleStartGame called', { selectedGameMode, roomCode, playerId, hostId, isHost, socketConnected: socket?.connected, socketId: socket?.id });
+    
     if (!socket?.connected) {
+      console.log('❌ Socket not connected');
       setSocketError('ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ โปรดลองใหม่อีกครั้ง');
       return;
     }
     if (!roomCode) {
+      console.log('❌ No roomCode');
       setSocketError('ไม่พบรหัสห้อง โปรดเข้าห้องก่อนเริ่มเกม');
       return;
     }
     if (!isHost) {
+      console.log('❌ Not host', { isHost, hostId, playerId });
       setSocketError('เฉพาะเจ้าของห้องเท่านั้นที่สามารถเริ่มเกมได้');
       return;
     }
     
-    console.log('handleStartGame', { roomCode, playerId, hostId, isHost, socketId: socket.id, gameMode: selectedGameMode });
+    console.log('✅ All checks passed, emitting START_BARKING_BATTLE', { roomCode, playerId, mode: selectedGameMode });
     
     // Send appropriate event based on selected game mode
     switch(selectedGameMode) {
       case 'barking_battle':
-        console.log('Starting BARKING_BATTLE');
+        console.log('🐕 Emitting START_BARKING_BATTLE', { roomCode, playerId });
         socket.emit('START_BARKING_BATTLE', { roomCode, playerId }, (response) => {
-          console.log('START_BARKING_BATTLE ack', response);
+          console.log('🐕 START_BARKING_BATTLE ack', response);
           setDebugMessage(`START_BARKING_BATTLE ack: ${JSON.stringify(response)}`);
           if (response?.ok !== true) {
+            console.log('❌ START_BARKING_BATTLE failed', response);
             setSocketError(response?.message || 'เริ่มเกมล้มเหลว');
           }
         });
@@ -571,6 +561,18 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'WAITING_PLAYERS') {
     return (
       <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
         {socketError && (
           <div className="socket-error">
             <strong>ไม่สามารถเชื่อมต่อเกมเซิร์ฟเวอร์ได้:</strong> {socketError}

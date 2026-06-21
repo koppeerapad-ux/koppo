@@ -9,9 +9,13 @@ import '../MelodyMess/MelodyMess.css';
 const MelodyMessLobby = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
-  const [gameMode, setGameMode] = useState(null);
+  const [gameMode, setGameMode] = useState(() => {
+    return window.localStorage.getItem('melody_mess_roomCode') ? 'battle' : null;
+  });
   const [roomCode, setRoomCode] = useState('');
-  const [pendingRoomCode, setPendingRoomCode] = useState(null);
+  const [pendingRoomCode, setPendingRoomCode] = useState(() => {
+    return window.localStorage.getItem('melody_mess_roomCode') || null;
+  });
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
@@ -29,6 +33,7 @@ const MelodyMessLobby = () => {
 
   if (gameMode === 'battle') {
     return <BattleSingerMode onBack={() => {
+      window.localStorage.removeItem('melody_mess_roomCode');
       setGameMode(null);
       setPendingRoomCode(null);
     }} initialRoomCode={pendingRoomCode} />;
