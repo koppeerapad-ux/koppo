@@ -35,6 +35,9 @@ io.on('connection', (socket) => {
     // attach socketId to player record
     if (room && room.players[pid]) room.players[pid].socketId = socket.id;
     socket.join(roomCode);
+    console.log(`✨ Room created: ${roomCode} by host ${pid}`);
+    console.log(`   Socket ${socket.id} joining room ${roomCode}`);
+    console.log(`   Socket rooms after join: ${[...socket.rooms]}`);
     socket.emit('ROOM_CREATED', {
       roomCode,
       playerId: pid,
@@ -42,7 +45,6 @@ io.on('connection', (socket) => {
       players: room.players,
     });
     io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
-    console.log(`✨ Room created: ${roomCode} by host ${pid}`);
   });
 
   socket.on('JOIN_ROOM', ({ roomCode, userData, playerId } = {}) => {
@@ -51,6 +53,9 @@ io.on('connection', (socket) => {
     if (room) {
       socketToPlayer.set(socket.id, pid);
       socket.join(roomCode);
+      console.log(`➕ Player joined room ${roomCode} (${pid})`);
+      console.log(`   Socket ${socket.id} joining room ${roomCode}`);
+      console.log(`   Socket rooms after join: ${[...socket.rooms]}`);
       socket.emit('ROOM_JOINED', {
         roomCode,
         playerId: pid,
@@ -58,7 +63,6 @@ io.on('connection', (socket) => {
         players: room.players,
       });
       io.to(roomCode).emit('PLAYERS_UPDATE', { players: room.players, hostId: room.hostId });
-      console.log(`➕ Player joined room ${roomCode} (${pid})`);
     } else {
       const roomExists = roomManager.getRoom(roomCode);
       const message = roomExists ? 'ห้องเต็มหรือผู้เล่นถึงขีดจำกัด' : 'ไม่พบห้องนี้';
@@ -179,6 +183,9 @@ io.on('connection', (socket) => {
     const room = roomManager.getRoom(resolvedRoomCode);
     const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     
+    const socketsInRoom = io.sockets.adapter.rooms.get(resolvedRoomCode);
+    const socketsInRoomCount = socketsInRoom?.size || 0;
+    
     console.log(`🐕 START_BARKING_BATTLE received`, {
       socketId: socket.id,
       providedRoomCode: roomCode,
@@ -189,6 +196,8 @@ io.on('connection', (socket) => {
       roomExists: !!room,
       playerCount: Object.keys(room?.players || {}).length,
       socketRooms: [...socket.rooms],
+      socketsInRoomNamespace: socketsInRoomCount,
+      socketsInRoomList: socketsInRoom ? [...socketsInRoom] : [],
     });
     
     if (!room) {
@@ -204,14 +213,16 @@ io.on('connection', (socket) => {
     }
 
     roomManager.initBarkingBattle(resolvedRoomCode);
-    console.log(`📢 Broadcasting BARKING_BATTLE_STARTED to room ${resolvedRoomCode} (${Object.keys(room.players).length} players)`);
+    console.log(`📢 Broadcasting BARKING_BATTLE_STARTED to room ${resolvedRoomCode}`);
+    console.log(`   Sockets in room: ${socketsInRoomCount}`);
+    console.log(`   Players in room: ${Object.keys(room.players).length}`);
     io.to(resolvedRoomCode).emit('BARKING_BATTLE_STARTED', {
       roomCode: resolvedRoomCode,
       duration: 30,
       players: room.players,
     });
-    if (typeof ack === 'function') ack({ ok: true });
     console.log(`✅ 🐕 Barking Battle started in room ${resolvedRoomCode}`);
+    if (typeof ack === 'function') ack({ ok: true });
   });
 
   socket.on('SUBMIT_BARK', ({ roomCode, playerId } = {}) => {
