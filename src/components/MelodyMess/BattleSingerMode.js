@@ -44,10 +44,14 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const [hostId, setHostId] = useState(null);
   const [socketId, setSocketId] = useState(null);
 
-  const [selectedGameMode, setSelectedGameMode] = useState('battle_singer'); // New: game mode selection
+  const [selectedGameMode, setSelectedGameMode] = useState('battle_singer');
   const [countdown, setCountdown] = useState(3);
   const [battleActive, setBattleActive] = useState(false);
   const [currentVolume, setCurrentVolume] = useState(0);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [remoteStreams, setRemoteStreams] = useState({}); // { playerId: MediaStream }
+  const peerConnectionsRef = React.useRef({}); // { playerId: RTCPeerConnection }
+  const localStreamRef = React.useRef(null);
   const isConnected = socket?.connected;
   const playerCount = Object.keys(players).length;
   const isHost = playerId && hostId && playerId === hostId;
@@ -179,6 +183,139 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       }
     };
   }, [battleActive, socket, roomCode, playerId, isHost]);
+
+  // Cleanup peer connections when leaving battle
+  const cleanupWebRTC = React.useCallback(() => {
+    Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
+    peerConnectionsRef.current = {};
+    setRemoteStreams({});
+    setVoiceActive(false);
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
+  }, []);
+
+  // Create a WebRTC peer connection to a specific player
+  const createPeerConnection = React.useCallback((targetPlayerId, localStream, socketRef) => {
+    if (peerConnectionsRef.current[targetPlayerId]) return peerConnectionsRef.current[targetPlayerId];
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    });
+
+    // Add local audio tracks
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+    // ICE candidates -> send via socket
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef) {
+        socketRef.emit('WEBRTC_ICE_CANDIDATE', {
+          roomCode: roomCodeRef.current,
+          targetPlayerId,
+          candidate: event.candidate,
+          fromPlayerId: playerId,
+        });
+      }
+    };
+
+    // Remote stream received -> play audio
+    pc.ontrack = (event) => {
+      console.log(`🔊 WebRTC track received from ${targetPlayerId}`);
+      setRemoteStreams((prev) => ({ ...prev, [targetPlayerId]: event.streams[0] }));
+    };
+
+    peerConnectionsRef.current[targetPlayerId] = pc;
+    return pc;
+  }, [playerId, roomCodeRef]);
+
+  // WebRTC session start when battle becomes active
+  useEffect(() => {
+    if (!battleActive || !socket) return;
+
+    let isMounted = true;
+    const currentSocket = socket;
+
+    const startWebRTCVoice = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStreamRef.current = stream;
+        if (isMounted) setVoiceActive(true);
+
+        // Ask existing peers to send us offers
+        currentSocket.emit('WEBRTC_REQUEST_ALL_PEERS', {
+          roomCode: roomCodeRef.current,
+          fromPlayerId: playerId,
+        });
+
+        // When an existing peer gets notified of us and sends an offer
+        const handleOffer = async ({ offer, fromPlayerId: offerFrom }) => {
+          if (!isMounted) return;
+          const pc = createPeerConnection(offerFrom, stream, currentSocket);
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          currentSocket.emit('WEBRTC_ANSWER', {
+            roomCode: roomCodeRef.current,
+            targetPlayerId: offerFrom,
+            answer,
+            fromPlayerId: playerId,
+          });
+        };
+
+        // When a new peer joins the room, we create an offer to them
+        const handlePeerJoined = async ({ newPlayerId }) => {
+          if (!isMounted || newPlayerId === playerId) return;
+          const pc = createPeerConnection(newPlayerId, stream, currentSocket);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          currentSocket.emit('WEBRTC_OFFER', {
+            roomCode: roomCodeRef.current,
+            targetPlayerId: newPlayerId,
+            offer,
+            fromPlayerId: playerId,
+          });
+        };
+
+        const handleAnswer = async ({ answer, fromPlayerId: answerFrom }) => {
+          const pc = peerConnectionsRef.current[answerFrom];
+          if (pc) {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          }
+        };
+
+        const handleIceCandidate = async ({ candidate, fromPlayerId: from }) => {
+          const pc = peerConnectionsRef.current[from];
+          if (pc && candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        };
+
+        currentSocket.on('WEBRTC_OFFER', handleOffer);
+        currentSocket.on('WEBRTC_PEER_JOINED', handlePeerJoined);
+        currentSocket.on('WEBRTC_ANSWER', handleAnswer);
+        currentSocket.on('WEBRTC_ICE_CANDIDATE', handleIceCandidate);
+
+        return () => {
+          isMounted = false;
+          currentSocket.off('WEBRTC_OFFER', handleOffer);
+          currentSocket.off('WEBRTC_PEER_JOINED', handlePeerJoined);
+          currentSocket.off('WEBRTC_ANSWER', handleAnswer);
+          currentSocket.off('WEBRTC_ICE_CANDIDATE', handleIceCandidate);
+          cleanupWebRTC();
+        };
+      } catch (err) {
+        console.error('WebRTC voice chat error:', err);
+      }
+    };
+
+    const cleanup = startWebRTCVoice();
+    return () => { cleanup.then((fn) => fn && fn()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battleActive]);
 
   // Initialize Socket.io
   useEffect(() => {
@@ -966,9 +1103,24 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   if (gameState === 'BOW_WOW_BATTLE') {
     return (
       <div className="battle-singer-container">
+        {/* Hidden audio elements — one per remote peer to play their voice */}
+        {Object.entries(remoteStreams).map(([pid, stream]) => (
+          <audio
+            key={pid}
+            autoPlay
+            playsInline
+            ref={(el) => {
+              if (el && el.srcObject !== stream) {
+                el.srcObject = stream;
+              }
+            }}
+          />
+        ))}
+
         <button 
           className="back-btn" 
           onClick={() => {
+            cleanupWebRTC();
             if (socket && roomCode) {
               socket.emit('LEAVE_ROOM', { roomCode, playerId });
             }
@@ -980,6 +1132,22 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
         </button>
         <h1>🐶 Bow-wow Battle</h1>
         <p>หมาเห่าแข่งกัน! ตะโกนหรือเห่าเลียนเสียงสุนัขให้ดังกว่าคู่แข่งใน 15 วินาที!</p>
+
+        {voiceActive && (
+          <div style={{
+            textAlign: 'center',
+            background: 'rgba(46, 213, 115, 0.25)',
+            border: '1px solid #2ed573',
+            borderRadius: '8px',
+            padding: '6px 14px',
+            display: 'inline-block',
+            margin: '0 auto 10px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+          }}>
+            🎙️ เสียงเปิดอยู่ — ได้ยินเสียงของผู้เล่นอื่นแล้ว!
+          </div>
+        )}
 
         {!battleActive && countdown > 0 ? (
           <div className="bow-wow-countdown-container">

@@ -459,6 +459,49 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ==================== WebRTC VOICE CHAT SIGNALING ====================
+  // These events just relay WebRTC signaling between peers (server doesn't touch audio)
+
+  socket.on('WEBRTC_OFFER', ({ targetPlayerId, offer, fromPlayerId, roomCode } = {}) => {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    const targetPlayer = room.players[targetPlayerId];
+    const targetSocketId = targetPlayer?.socketId;
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('WEBRTC_OFFER', { offer, fromPlayerId });
+      console.log(`📡 WEBRTC_OFFER relayed from ${fromPlayerId} to ${targetPlayerId}`);
+    }
+  });
+
+  socket.on('WEBRTC_ANSWER', ({ targetPlayerId, answer, fromPlayerId, roomCode } = {}) => {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    const targetPlayer = room.players[targetPlayerId];
+    const targetSocketId = targetPlayer?.socketId;
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('WEBRTC_ANSWER', { answer, fromPlayerId });
+      console.log(`📡 WEBRTC_ANSWER relayed from ${fromPlayerId} to ${targetPlayerId}`);
+    }
+  });
+
+  socket.on('WEBRTC_ICE_CANDIDATE', ({ targetPlayerId, candidate, fromPlayerId, roomCode } = {}) => {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    const targetPlayer = room.players[targetPlayerId];
+    const targetSocketId = targetPlayer?.socketId;
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('WEBRTC_ICE_CANDIDATE', { candidate, fromPlayerId });
+    }
+  });
+
+  socket.on('WEBRTC_REQUEST_ALL_PEERS', ({ roomCode, fromPlayerId } = {}) => {
+    // Notify all OTHER players in the room to initiate an offer to the requester
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    socket.to(roomCode).emit('WEBRTC_PEER_JOINED', { newPlayerId: fromPlayerId });
+    console.log(`📡 WEBRTC_REQUEST_ALL_PEERS: notified room ${roomCode} of new peer ${fromPlayerId}`);
+  });
+
   socket.on('disconnect', () => {
     const pid = socketToPlayer.get(socket.id) || socket.id;
     socketToPlayer.delete(socket.id);
