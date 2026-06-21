@@ -45,6 +45,9 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
   const [socketId, setSocketId] = useState(null);
 
   const [selectedGameMode, setSelectedGameMode] = useState('battle_singer'); // New: game mode selection
+  const [countdown, setCountdown] = useState(3);
+  const [battleActive, setBattleActive] = useState(false);
+  const [currentVolume, setCurrentVolume] = useState(0);
   const isConnected = socket?.connected;
   const playerCount = Object.keys(players).length;
   const isHost = playerId && hostId && playerId === hostId;
@@ -70,6 +73,112 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     const fallbackPlayer = playersArray[0];
     return hostFromFlag?.playerId || hostFromFlag?.id || fallbackPlayer?.playerId || fallbackPlayer?.id || null;
   };
+
+  // Bow-wow Battle (Barking Battle) Countdown & Audio Analysis logic
+  useEffect(() => {
+    if (gameState !== 'BOW_WOW_BATTLE') return;
+
+    setCountdown(3);
+    setBattleActive(false);
+    setCurrentVolume(0);
+
+    let cdTimer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cdTimer);
+          setBattleActive(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(cdTimer);
+  }, [gameState]);
+
+  useEffect(() => {
+    if (!battleActive) return;
+
+    setRecordingTime(15);
+    let gameTimer = setInterval(() => {
+      setRecordingTime((prev) => {
+        if (prev <= 1) {
+          clearInterval(gameTimer);
+          setBattleActive(false);
+          if (isHost && socket) {
+            console.log('⏰ Timer expired. Host ending Barking Battle.');
+            socket.emit('END_BARKING_BATTLE', { roomCode });
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    let audioContext = null;
+    let analyser = null;
+    let microphone = null;
+    let javascriptNode = null;
+    let stream = null;
+
+    const startVolumeAnalysis = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        microphone = audioContext.createMediaStreamSource(stream);
+        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+
+        analyser.smoothingTimeConstant = 0.8;
+        analyser.fftSize = 1024;
+
+        microphone.connect(analyser);
+        analyser.connect(javascriptNode);
+        javascriptNode.connect(audioContext.destination);
+
+        let lastEmit = Date.now();
+
+        javascriptNode.onaudioprocess = () => {
+          const array = new Uint8Array(analyser.frequencyBinCount);
+          analyser.getByteFrequencyData(array);
+          let values = 0;
+
+          const length = array.length;
+          for (let i = 0; i < length; i++) {
+            values += array[i];
+          }
+
+          const average = values / length;
+          const volume = Math.round(average);
+          setCurrentVolume(volume);
+
+          const now = Date.now();
+          if (volume > 15 && now - lastEmit > 200) {
+            const points = Math.min(Math.round(volume / 5), 10);
+            if (socket) {
+              socket.emit('SUBMIT_BARK', { roomCode, playerId, points });
+            }
+            lastEmit = now;
+          }
+        };
+      } catch (err) {
+        console.error('Error accessing microphone for volume meter:', err);
+      }
+    };
+
+    startVolumeAnalysis();
+
+    return () => {
+      clearInterval(gameTimer);
+      if (javascriptNode) javascriptNode.disconnect();
+      if (microphone) microphone.disconnect();
+      if (analyser) analyser.disconnect();
+      if (audioContext) audioContext.close();
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [battleActive, socket, roomCode, playerId, isHost]);
 
   // Initialize Socket.io
   useEffect(() => {
@@ -242,7 +351,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
       console.log('🐕 BARKING_BATTLE_STARTED received', { roomCode: payloadRoomCode, duration });
       const normalizedPlayers = normalizePlayers(playerList);
       setPlayers(normalizedPlayers);
-      setGameState('RECORDING'); // Players now enter recording mode for barking
+      setGameState('BOW_WOW_BATTLE'); // Custom screen!
       setDebugMessage(`BARKING_BATTLE_STARTED: duration=${duration} players=${Object.keys(normalizedPlayers).length}`);
     });
 
@@ -610,7 +719,7 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
                       checked={selectedGameMode === 'barking_battle'}
                       onChange={(e) => setSelectedGameMode(e.target.value)}
                     />
-                    <span>🐶 โฮ่งฮับแชมเปียนชิป (Barking Battle)</span>
+                    <span>🐶 Bow-wow Battle (แข่งกันเห่าโฮ่ง!)</span>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                     <input
@@ -853,18 +962,88 @@ const BattleSingerMode = ({ onBack, initialRoomCode = null }) => {
     );
   }
 
+  // BOW WOW BATTLE Screen
+  if (gameState === 'BOW_WOW_BATTLE') {
+    return (
+      <div className="battle-singer-container">
+        <button 
+          className="back-btn" 
+          onClick={() => {
+            if (socket && roomCode) {
+              socket.emit('LEAVE_ROOM', { roomCode, playerId });
+            }
+            window.localStorage.removeItem(STORAGE_ROOM_KEY);
+            onBack();
+          }}
+        >
+          ← ออกจากห้อง
+        </button>
+        <h1>🐶 Bow-wow Battle</h1>
+        <p>หมาเห่าแข่งกัน! ตะโกนหรือเห่าเลียนเสียงสุนัขให้ดังกว่าคู่แข่งใน 15 วินาที!</p>
+
+        {!battleActive && countdown > 0 ? (
+          <div className="bow-wow-countdown-container">
+            <div className="countdown-title">เตรียมตัวให้พร้อม...</div>
+            <div className="countdown-number">{countdown}</div>
+          </div>
+        ) : (
+          <>
+            <div className="bow-wow-battle-timer">
+              ⏱️ {recordingTime}s
+            </div>
+
+            <div className="bark-leaderboard">
+              <h3 style={{ textAlign: 'center', marginBottom: '15px' }}>🏆 คะแนนความดังสะสม</h3>
+              {Object.values(players).map((p) => {
+                const score = p.barkScore || 0;
+                const maxScore = Math.max(...Object.values(players).map((pl) => pl.barkScore || 0), 100);
+                const percent = Math.min((score / maxScore) * 100, 100);
+                return (
+                  <div key={p.id} className="bark-player-row">
+                    <div className="bark-player-info">
+                      <span>{p.name} {p.id === playerId ? '(คุณ)' : ''}</span>
+                      <span>🔊 {score}</span>
+                    </div>
+                    <div className="bark-bar-outer">
+                      <div className="bark-bar-inner" style={{ width: `${percent}%` }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {battleActive && (
+              <div className="local-volume-container">
+                <div>🎙️ ระดับเสียงเห่าของคุณในปัจจุบัน:</div>
+                <div className="volume-meter-wrapper">
+                  <div className="volume-meter-fill" style={{ width: `${Math.min((currentVolume / 100) * 100, 100)}%` }}></div>
+                  <div className="volume-meter-label">{currentVolume}</div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      {renderDebugPanel()}
+      </div>
+    );
+  }
+
   // RESULTS Screen
   if (gameState === 'RESULTS') {
     return (
       <div className="battle-singer-container">
-        <h2>🎉 ผลการโหวต</h2>
+        <h2>🎉 {selectedGameMode === 'barking_battle' ? 'สรุปคะแนนผู้ชนะ!' : 'ผลการโหวต'}</h2>
 
         <div className="results-list">
           {results.map((result, index) => (
             <div key={result.playerId} className="result-item">
               <span className="rank">{index + 1}</span>
               <span className="name">{result.playerName}</span>
-              <span className="votes">⭐ {result.votes} votes</span>
+              {selectedGameMode === 'barking_battle' ? (
+                <span className="votes">🔊 {result.score || 0} คะแนน</span>
+              ) : (
+                <span className="votes">⭐ {result.votes || 0} votes</span>
+              )}
             </div>
           ))}
         </div>

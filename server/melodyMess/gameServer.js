@@ -224,18 +224,18 @@ io.on('connection', (socket) => {
     console.log(`   Players in room: ${Object.keys(room.players).length}`);
     io.to(resolvedRoomCode).emit('BARKING_BATTLE_STARTED', {
       roomCode: resolvedRoomCode,
-      duration: 30,
+      duration: 15,
       players: room.players,
     });
     console.log(`✅ 🐕 Barking Battle started in room ${resolvedRoomCode}`);
     if (typeof ack === 'function') ack({ ok: true });
   });
 
-  socket.on('SUBMIT_BARK', ({ roomCode, playerId } = {}) => {
+  socket.on('SUBMIT_BARK', ({ roomCode, playerId, points = 1 } = {}) => {
     const resolvedRoomCode = roomCode || [...socket.rooms].find((r) => r !== socket.id);
     const pid = playerId || socketToPlayer.get(socket.id) || socket.id;
     
-    roomManager.addBarkScore(resolvedRoomCode, pid, 1);
+    roomManager.addBarkScore(resolvedRoomCode, pid, points);
     const room = roomManager.getRoom(resolvedRoomCode);
     
     io.to(resolvedRoomCode).emit('BARK_SCORE_UPDATE', {

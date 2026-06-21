@@ -96,7 +96,7 @@ class RoomManager {
     room.gameMode = 'barking_battle';
     room.gameState = 'RECORDING';
     room.barkScores = {};
-    room.barkTimer = 30; // 30 seconds
+    room.barkTimer = 15; // 15 seconds
     
     Object.keys(room.players).forEach(playerId => {
       room.barkScores[playerId] = 0;
